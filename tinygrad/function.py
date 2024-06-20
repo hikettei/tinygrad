@@ -46,12 +46,48 @@ def _rintk(d: LazyBuffer) -> LazyBuffer:  # returns int32
 def _mla(x: LazyBuffer, y: LazyBuffer, z: LazyBuffer) -> LazyBuffer:
   return x.e(BinaryOps.MUL, y).e(BinaryOps.ADD, z)
 
+def _payne_hanek(d: LazyBuffer, d_float: LazyBuffer) -> Tuple[LazyBuffer, LazyBuffer]:
+  dtype = d.dtype
+  two_over_pi = [
+    6.366197723675813824e-01,
+    5.734161139222659000e-15,
+    5.164873193977109182e-31,
+  ]
+
+  int_dtype = dtypes.int64
+  d_scaled = d.e(BinaryOps.MUL, d.const(two_over_pi[0]))
+  n_trunc = d_scaled.cast(int_dtype).cast(d.dtype)
+  n= d_scaled.e(BinaryOps.CMPLT, n_trunc).e(TernaryOps.WHERE, n_trunc.e(BinaryOps.ADD, n_trunc.const(-1)), n_trunc)
+  f = d_scaled.e(BinaryOps.ADD, n.e(UnaryOps.NEG))
+  for t in two_over_pi[1:]:
+    d_scaled = d.e(BinaryOps.MUL, d.const(t))
+    f = f.e(BinaryOps.ADD, d_scaled)
+
+  f_trunc = f.cast(int_dtype).cast(d.dtype)
+  f_floor = f.e(BinaryOps.CMPLT, f_trunc).e(TernaryOps.WHERE, f_trunc.e(BinaryOps.ADD, f_trunc.const(-1)), f_trunc)
+
+  reduced_x = f.e(BinaryOps.ADD, f_floor.e(UnaryOps.NEG)).e(BinaryOps.MUL, d.const(math.pi / 2))
+  q = n.cast(int_dtype).e(BinaryOps.MOD, d.const(4).cast(int_dtype))
+  q = q.e(BinaryOps.ADD, q.const(4)).e(BinaryOps.MOD, q.const(4))
+
+  def _eq(n: int) -> LazyBuffer:
+    return q.e(BinaryOps.CMPNE, q.const(n))
+
+  reduced_x = _eq(1).e(TernaryOps.WHERE, reduced_x.const(math.pi / 2).e(BinaryOps.ADD, reduced_x.e(UnaryOps.NEG)), reduced_x)
+  reduced_x = _eq(3).e(TernaryOps.WHERE, reduced_x.const(math.pi / 2).e(BinaryOps.ADD, reduced_x.e(UnaryOps.NEG)), reduced_x)
+
+  reduced_x = _eq(2).e(TernaryOps.WHERE, reduced_x.e(UnaryOps.NEG), reduced_x)
+  reduced_x = _eq(3).e(TernaryOps.WHERE, reduced_x.e(UnaryOps.NEG), reduced_x)
+
+  q = d_float.e(BinaryOps.CMPNE, d_float.const(0)).e(TernaryOps.WHERE, d_float.e(BinaryOps.CMPLT, d_float.const(0)).e(TernaryOps.WHERE, d_float.const(-1), d_float.const(0)), d_float.const(0))
+
+  return reduced_x, q
 
 def _xsin(d: LazyBuffer) -> LazyBuffer:
   assert d.dtype == dtypes.float32 or d.dtype == dtypes.float64
   fp32_p = dtypes.float32 == d.dtype
-  trig_range = d.const(125.0 if fp32_p else 15.0)
-
+  trig_range_lv1 = d.const(125.0 if fp32_p else 15.0)
+  trig_range_lv2 = d.const(39000 if fp32_p else 1e+14)
   m_1_pi = 0.318309886183790671537767526745028724
 
   # abs(d)
@@ -68,13 +104,16 @@ def _xsin(d: LazyBuffer) -> LazyBuffer:
     return _rintk(x.e(BinaryOps.MUL, d.const(m_1_pi))).cast(d.dtype)
 
   def __lv2q(x: LazyBuffer) -> LazyBuffer:
-    assert qdh is not None
-    return (
-      _rintk(x.e(BinaryOps.MUL, d.const(m_1_pi))).cast(d.dtype) if fp32_p else _rintk(_mla(d, d.const(m_1_pi), qdh.e(UnaryOps.NEG))).cast(d.dtype)
-    )
+    if fp32_p:
+      return __lv1q(x)
+    else:
+      assert qdh is not None
+      return (
+        _rintk(x.e(BinaryOps.MUL, d.const(m_1_pi))).cast(d.dtype) if fp32_p else _rintk(_mla(d, d.const(m_1_pi), qdh.e(UnaryOps.NEG))).cast(d.dtype)
+      )
 
-  q: LazyBuffer = (__lv1q(d) if fp32_p else di.e(BinaryOps.CMPLT, trig_range).e(TernaryOps.WHERE, __lv1q(d), __lv2q(d)))
-
+  lv3_d, lv3_q = _payne_hanek(di, d)
+  q: LazyBuffer = di.e(BinaryOps.CMPLT, trig_range_lv1).e(TernaryOps.WHERE, __lv1q(d), di.e(BinaryOps.CMPLT, trig_range_lv2).e(TernaryOps.WHERE, __lv2q(d), lv3_q))
   def __lv1(x: LazyBuffer) -> LazyBuffer:
     if fp32_p:
       d = _mla(q, x.const(-3.1414794921875), x)
@@ -104,10 +143,9 @@ def _xsin(d: LazyBuffer) -> LazyBuffer:
       d = _mla(qdh.e(BinaryOps.ADD, q), x.const(-1.2736634327021899816e-24), d)
       return d
 
-  d = di.e(BinaryOps.CMPLT, trig_range).e(TernaryOps.WHERE, __lv1(d), __lv2(d))
-
+  d = di.e(BinaryOps.CMPLT, trig_range_lv1).e(TernaryOps.WHERE, __lv1(d), di.e(BinaryOps.CMPLT, trig_range_lv2).e(TernaryOps.WHERE, __lv2(d), lv3_d))
   s = d.e(BinaryOps.MUL, d)
-  a = q.cast(dtypes.int32).e(BinaryOps.MOD, d.const(2).cast(dtypes.int32)).cast(d.dtype)
+  a = q.cast(dtypes.int64).e(BinaryOps.MOD, d.const(2).cast(dtypes.int64)).cast(d.dtype)
   d = d.e(BinaryOps.MUL, a.e(BinaryOps.CMPNE, d.const(0)).e(TernaryOps.WHERE, d.const(-1), d.const(1)))
 
   u = None
@@ -149,10 +187,10 @@ class Sin(Function):
   def forward(self, x: LazyBuffer) -> LazyBuffer:
     self.x = x
     fast_approx = x.dtype == dtypes.float32 or x.dtype == dtypes.float64
-    # fast_approx=False
+    #fast_approx=False
     if fast_approx:
       assert x.dtype == dtypes.float32 or x.dtype == dtypes.float64, ""
-      return _xsin(x)
+      return x.e(BinaryOps.CMPNE, x.const(math.inf)).e(TernaryOps.WHERE, _xsin(x), x.const(0))
     else:
       return x.e(UnaryOps.SIN)
 
