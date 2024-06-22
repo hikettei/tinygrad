@@ -516,7 +516,7 @@ jobs:
           ./autogen_stubs.sh io_uring
           diff /tmp/io_uring.py.bak tinygrad/runtime/autogen/io_uring.py
       - name: Run sin test
-        run: python -m pytest test/test_ops.py::TestOps::test_sin
+        run: DEBUG=6 python -m pytest test/test_ops.py::TestOps::test_sin
       - name: Run pytest (not cuda or amd)
         if: matrix.backend!='ptx' && matrix.backend!='triton' && matrix.backend != 'amd' && matrix.backend != 'nv'
         run: python -m pytest -n=auto test/ --durations=20
