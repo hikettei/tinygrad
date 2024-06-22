@@ -285,10 +285,10 @@ def _xsin(x: LazyBuffer, is_metal: bool=False, fast: bool=False) -> LazyBuffer:
 class Sin(Function):
   def forward(self, x: LazyBuffer, fast:bool=False) -> LazyBuffer:
     self.x = x
-    self.fast = fast or self.device in ["NV", "PTX"]
+    self.fast = fast# or self.device in ["NV", "CUDA"]
     self.fast_approx = x.dtype in [dtypes.float32, dtypes.float64]
     if self.fast_approx:
-      return _xsin(x, is_metal=self.device=="METAL", fast=self.fast)
+      return _xsin(x, is_metal=True, fast=self.fast)
 
     return x.e(UnaryOps.SIN)
 
