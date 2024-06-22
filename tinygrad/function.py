@@ -446,7 +446,7 @@ def _xexp2_base(d: LazyBuffer) -> LazyBuffer:
   return u
 
 def _xexp2(d: LazyBuffer) -> LazyBuffer:
-  if 0 in d.shape: return x
+  if 0 in d.shape: return d
   d_in =  d.e(BinaryOps.CMPNE, d.const(math.inf)).e(
     TernaryOps.WHERE, d.e(BinaryOps.CMPNE, d).e(
       TernaryOps.WHERE,
