@@ -38,8 +38,8 @@ class Reciprocal(Function):
 
 # ****** helper functions for fast approxs ***********
 def _rintk(d: LazyBuffer) -> LazyBuffer:  # returns int32
-  assert d.dtype in (dtypes.float32, dtypes.float64)
-  return_t = dtypes.int32 if d.dtype == dtypes.float32 else dtypes.int64
+  assert d.dtype in (dtypes.float16, dtypes.float32, dtypes.float64)
+  return_t = {dtypes.float64: dtypes.int64, dtypes.float32: dtypes.int32, dtypes.float16: dtypes.int16}[d.dtype]
   return d.e(BinaryOps.ADD, d.e(BinaryOps.CMPLT, d.const(0.0)).e(TernaryOps.WHERE, d.const(-0.5), d.const(0.5))).cast(return_t)
 
 
@@ -286,7 +286,7 @@ class Sin(Function):
   def forward(self, x: LazyBuffer, fast:bool=False) -> LazyBuffer:
     self.x = x
     self.fast = fast or self.device in ["PTX", "NV", "CUDA"]
-    self.fast_approx = x.dtype in [dtypes.float32, dtypes.float64]
+    self.fast_approx = x.dtype in [dtypes.float16, dtypes.float32, dtypes.float64]
     if self.fast_approx:
       return _xsin(x, is_metal=self.device=="METAL", fast=self.fast)
 
