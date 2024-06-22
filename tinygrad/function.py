@@ -36,8 +36,7 @@ class Reciprocal(Function):
   def backward(self, grad_output:LazyBuffer) -> LazyBuffer:
     return grad_output.e(UnaryOps.NEG).e(BinaryOps.MUL, self.ret).e(BinaryOps.MUL, self.ret)
 
-# ****** helper functions for fast approxs ***********
-
+# ******* helper functions *******
 def _significand_bits(d: DType) -> int:
   return {
     dtypes.float64: 52,
@@ -68,7 +67,7 @@ def _bits_to_float(d: LazyBuffer) -> LazyBuffer:
   cast_to = {dtypes.uint64: dtypes.float64, dtypes.uint32: dtypes.float32, dtypes.uint16: dtypes.float16}[d.dtype]
   assert cast_to is not None
   return d.cast(cast_to, True)
-  
+
 def _rintk(d: LazyBuffer) -> LazyBuffer:
   assert d.dtype in (dtypes.float16, dtypes.float32, dtypes.float64)
   return_t = {dtypes.float64: dtypes.int64, dtypes.float32: dtypes.int32, dtypes.float16: dtypes.int16}[d.dtype]
@@ -77,16 +76,63 @@ def _rintk(d: LazyBuffer) -> LazyBuffer:
 def _mla(x: LazyBuffer, y: LazyBuffer, z: LazyBuffer) -> LazyBuffer:
   return x.e(BinaryOps.MUL, y).e(BinaryOps.ADD, z)
 
-def _poly4(x: LazyBuffer, x2: LazyBuffer, c3, c2, c1, c0) -> LazyBuffer:
-  return _mla(x2, _mla(x, x.const(c3), x.const(c2)), _mla(x, x.const(c1), x.const(c0)))
+def _lazy_map_numbers(x: LazyBuffer, inf: LazyBuffer, _inf: LazyBuffer, nan: LazyBuffer, ratio: LazyBuffer):
+  """replace inf -> inf, -inf -> _inf, nan -> nan, otherwise -> ratio"""
+  return x.e(BinaryOps.CMPNE, x.const(math.inf)).e(TernaryOps.WHERE, x.e(BinaryOps.CMPNE, x).e(TernaryOps.WHERE, nan, x.e(BinaryOps.CMPNE, x.const(-math.inf)).e(TernaryOps.WHERE, ratio, _inf)), inf) # noqa: E501
 
-def _poly8(x, x2, x4, c7, c6, c5, c4, c3, c2, c1, c0) -> LazyBuffer:
-  return _mla(x4, _poly4(x, x2, c7, c6, c5, c4), _poly4(x, x2, c3, c2, c1, c0))
+def _dfmul_f2_f_f(x: LazyBuffer, y: LazyBuffer) -> Tuple[LazyBuffer, LazyBuffer]:
+  xl = x.e(BinaryOps.ADD, x.e(UnaryOps.NEG))
+  yl = y.e(BinaryOps.ADD, y.e(UnaryOps.NEG))
+  rx = x.e(BinaryOps.MUL, y)
+  ry = x.e(BinaryOps.MUL, y).e(
+    BinaryOps.ADD,
+    rx.e(UnaryOps.NEG)
+  ).e(
+    BinaryOps.ADD,
+    xl.e(BinaryOps.MUL, y)
+  ).e(
+    BinaryOps.ADD,
+    x.e(BinaryOps.MUL, yl)
+  ).e(
+    BinaryOps.ADD,
+    xl.e(BinaryOps.MUL, yl)
+  )
+  return rx, ry
 
-def _poly10(x, x2, x4, x8, c9, c8, c7, c6, c5, c4, c3, c2, c1, c0) -> LazyBuffer:
-  return _mla(x8, _mla(x, x.const(c9), x.const(c8)), _poly8(x, x2, x4, c7, c6, c5, c4, c3, c2, c1, c0))
+def _dfadd2_f2_f_f2(x: LazyBuffer, y_x: LazyBuffer, y_y: LazyBuffer) -> Tuple[LazyBuffer, LazyBuffer]:
+  r_x = x.e(BinaryOps.ADD, y_x)
+  r_y = x.e(BinaryOps.ADD, r_x.e(UnaryOps.NEG)).e(BinaryOps.ADD, y_x).e(BinaryOps.ADD, y_y)
+  return r_x, r_y
 
-#def _map_numbers(x: LazyBuffer, )
+def _ilogb2k(d:LazyBuffer) -> LazyBuffer:
+  assert d.dtype in [dtypes.float64, dtypes.float32, dtypes.float16]
+  significand_bits = _significand_bits(d.dtype)
+  exponent_mask = _exponent_mask(d.dtype)
+  exponent_bias = _exponent_bias(d.dtype)+1
+  dint = d.cast({dtypes.float64: dtypes.int64, dtypes.float32: dtypes.int32, dtypes.float16: dtypes.int16}[d.dtype], True)
+  return dint.e(BinaryOps.SHR, dint.const(significand_bits)).e(BinaryOps.AND, dint.const(exponent_mask)).e(BinaryOps.ADD, dint.const(-exponent_bias))
+
+def _pow2if(q: LazyBuffer):
+  if q.dtype == dtypes.int32:
+    return q.e(BinaryOps.ADD, q.const(127)).e(BinaryOps.SHL, q.const(23)).cast(dtypes.float32, True)
+  if q.dtype == dtypes.int64:
+    return q.e(BinaryOps.ADD, q.const(1023)).e(BinaryOps.SHL, q.const(52)).cast(dtypes.float64, True)
+  assert q.dtype in (dtypes.int32, dtypes.int64), f"_pow2if: {q.dtype} is not implemented."
+  return None
+
+def _ldexp2kf(d: LazyBuffer, e: LazyBuffer) -> LazyBuffer:
+  assert d.dtype in (dtypes.float32, dtypes.float64)
+  assert e.dtype in (dtypes.int32, dtypes.int64)
+  return d.e(BinaryOps.MUL, _pow2if(e.e(BinaryOps.SHR, e.const(1)))).e(BinaryOps.MUL, _pow2if(e.e(BinaryOps.ADD, e.e(BinaryOps.SHR, e.const(1)).e(UnaryOps.NEG)))) # noqa: E501
+
+def _ldexp3k(d:LazyBuffer, e:LazyBuffer) -> LazyBuffer:
+  assert d.dtype in (dtypes.float16, dtypes.float32, dtypes.float64)
+  assert e.dtype in (dtypes.float16, dtypes.float32, dtypes.float64)
+  cast_map = {dtypes.float64: dtypes.int64, dtypes.float32: dtypes.int32, dtypes.float16: dtypes.int16}
+  e = e.cast(cast_map[d.dtype])
+  m1 = d.cast(cast_map[d.dtype], True)
+  m2 = e.e(BinaryOps.SHL, e.const(_significand_bits(d.dtype)))
+  return m1.e(BinaryOps.ADD, m2).cast(d.dtype, True)
 
 def _payne_hanek(d: LazyBuffer, d_base: LazyBuffer, is_metal:bool = False) -> LazyBuffer:
   assert d.dtype in [dtypes.float64, dtypes.float32, dtypes.float16]
@@ -115,7 +161,7 @@ def _payne_hanek(d: LazyBuffer, d_base: LazyBuffer, is_metal:bool = False) -> La
   }[d.dtype]
 
   def _frexp(v: LazyBuffer) -> Tuple[LazyBuffer, LazyBuffer]:
-    # assert: v is not around zero.
+    # assert: v >= 15.0
     bits = _float_to_bits(v)
     exponent = bits.e(BinaryOps.SHR, bits.const(significand_bits)).e(BinaryOps.AND, bits.const(exponent_mask))
     exponent_zero = exponent.e(BinaryOps.CMPNE, exponent.const(0.0))
@@ -133,15 +179,15 @@ def _payne_hanek(d: LazyBuffer, d_base: LazyBuffer, is_metal:bool = False) -> La
   e = (k := e.cast(dtypes.uint64)).e(BinaryOps.AND, k.const(31))
 
   def _eq(arr: LazyBuffer, eq_to: int) -> LazyBuffer: return arr.e(BinaryOps.CMPNE, arr.const(eq_to))
+
+  # a_n = (two_over_pi_f[Int(i) + n] << e) | (two_over_pi_f[Int(i) + n+1] >> (nbits - e))
   a1 = i.const(0).cast(dtypes.uint32)
   a2 = i.const(0).cast(dtypes.uint32)
   a3 = i.const(0).cast(dtypes.uint32)
-
   for n in range(len(two_over_pi_f[:-2])):
     a1 = _eq(i, n).e(TernaryOps.WHERE, a1, a1.const(two_over_pi_f[n+0]))
     a2 = _eq(i, n).e(TernaryOps.WHERE, a2, a2.const(two_over_pi_f[n+1]))
     a3 = _eq(i, n).e(TernaryOps.WHERE, a3, a3.const(two_over_pi_f[n+2]))
-
   a1p1 = a1.const(0)
   a2p1 = a2.const(0)
   a3p1 = a3.const(0)
@@ -149,7 +195,6 @@ def _payne_hanek(d: LazyBuffer, d_base: LazyBuffer, is_metal:bool = False) -> La
     a1p1 = _eq(i, n).e(TernaryOps.WHERE, a1p1, a1p1.const(two_over_pi_f[n+1]))
     a2p1 = _eq(i, n).e(TernaryOps.WHERE, a2p1, a2p1.const(two_over_pi_f[n+2]))
     a3p1 = _eq(i, n).e(TernaryOps.WHERE, a3p1, a3p1.const(two_over_pi_f[n+3]))
-
   e = e.cast(dtypes.uint32)
   offset = e.const(32).e(BinaryOps.ADD, e.e(UnaryOps.NEG))
 
@@ -188,14 +233,10 @@ def _payne_hanek(d: LazyBuffer, d_base: LazyBuffer, is_metal:bool = False) -> La
   r = lt_zero_map.e(TernaryOps.WHERE, r.e(UnaryOps.NEG), r)
   return r.cast(dtype)
 
+## **** approxs for sin/exp2/log2 ******
 def _xsin_base(d: LazyBuffer, is_metal:bool=False, fast:bool=False) -> LazyBuffer:
   assert d.dtype in [dtypes.float64, dtypes.float32, dtypes.float16]
-  d =  d.e(BinaryOps.CMPNE, d.const(math.inf)).e(
-    TernaryOps.WHERE, d.e(BinaryOps.CMPNE, d).e(
-      TernaryOps.WHERE,
-      d.const(0.0),
-      d.e(BinaryOps.CMPNE, d.const(-math.inf)).e(TernaryOps.WHERE, d, d.const(0.0))),
-    d.const(0.0))
+  d = _lazy_map_numbers(d, d.const(0.0), d.const(0.0), d.const(0.0), d)
 
   fp32_p = dtypes.float32 == d.dtype
   trig_range_lv1 = d.const(125.0 if fp32_p else 15.0)
@@ -217,7 +258,6 @@ def _xsin_base(d: LazyBuffer, is_metal:bool=False, fast:bool=False) -> LazyBuffe
   def __lv2q(x: LazyBuffer) -> LazyBuffer:
     if fp32_p:
       return __lv1q(x)
-
     assert qdh is not None
     return (
       _rintk(x.e(BinaryOps.MUL, d.const(m_1_pi))).cast(d.dtype) if fp32_p else _rintk(_mla(d, d.const(m_1_pi), qdh.e(UnaryOps.NEG))).cast(d.dtype)
@@ -270,12 +310,8 @@ def _xsin_base(d: LazyBuffer, is_metal:bool=False, fast:bool=False) -> LazyBuffe
     s2 = s.e(BinaryOps.MUL, s)
     s4 = s2.e(BinaryOps.MUL, s2)
 
-    def __poly4(x: LazyBuffer, x2: LazyBuffer, c3, c2, c1, c0) -> LazyBuffer:
-      return _mla(x2, _mla(x, d.const(c3), d.const(c2)), _mla(x, d.const(c1), d.const(c0)))
-
-    def __poly8(x, x2, x4, c7, c6, c5, c4, c3, c2, c1, c0) -> LazyBuffer:
-      return _mla(x4, __poly4(x, x2, c7, c6, c5, c4), __poly4(x, x2, c3, c2, c1, c0))
-
+    def __poly4(x: LazyBuffer, x2: LazyBuffer, c3, c2, c1, c0) -> LazyBuffer: return _mla(x2, _mla(x, d.const(c3), d.const(c2)), _mla(x, d.const(c1), d.const(c0))) # noqa: E501
+    def __poly8(x, x2, x4, c7, c6, c5, c4, c3, c2, c1, c0) -> LazyBuffer: return _mla(x4, __poly4(x, x2, c7, c6, c5, c4), __poly4(x, x2, c3, c2, c1, c0)) # noqa: E501
     u = __poly8(
       s,
       s2,
@@ -295,149 +331,13 @@ def _xsin_base(d: LazyBuffer, is_metal:bool=False, fast:bool=False) -> LazyBuffe
 
 def _xsin(x: LazyBuffer, is_metal: bool=False, fast: bool=False) -> LazyBuffer:
   if 0 in x.shape: return x
-  return x.e(BinaryOps.CMPNE, x.const(math.inf)).e(
-    TernaryOps.WHERE, x.e(BinaryOps.CMPNE, x).e(
-      TernaryOps.WHERE,
-      x.const(math.nan),
-      x.e(BinaryOps.CMPNE, x.const(-math.inf)).e(TernaryOps.WHERE, _xsin_base(x, is_metal=is_metal, fast=fast), x.const(math.nan))),
-    x.const(math.nan))
-
-def _upperf(x:LazyBuffer) -> LazyBuffer:
-  return x
-  cast_to = {dtypes.float64: dtypes.int64, dtypes.float32: dtypes.int32, dtypes.float16: dtypes.float16}[x.dtype]
-  assert cast_to
-  m = x.cast(cast_to)
-  mask = {
-    dtypes.float64: 0xfffffffff8000000,
-    dtypes.float32: 0xfffff000
-  }[x.dtype]
-  return m.e(BinaryOps.AND, m.const(mask)).cast(x.dtype)
-
-def _dfnormalize_f2_f2(t_x:LazyBuffer, t_y:LazyBuffer) -> Tuple[LazyBuffer, LazyBuffer]:
-  s_x = t_x.e(BinaryOps.ADD, t_y)
-  s_y = t_x.e(BinaryOps.ADD, s_x.e(UnaryOps.NEG)).e(BinaryOps.ADD, t_y)
-  return s_x, s_y
-
-def _dfmul_f2_f_f(x:LazyBuffer, y:LazyBuffer) -> Tuple[LazyBuffer, LazyBuffer]:
-  xh = _upperf(x)
-  yh = _upperf(y)
-  xl = x.e(BinaryOps.ADD, xh.e(UnaryOps.NEG))
-  yl = y.e(BinaryOps.ADD, yh.e(UnaryOps.NEG))
-  rx = x.e(BinaryOps.MUL, y)
-  ry = xh.e(BinaryOps.MUL, yh).e(
-    BinaryOps.ADD,
-    rx.e(UnaryOps.NEG)
-  ).e(
-    BinaryOps.ADD,
-    xl.e(BinaryOps.MUL, yh)
-  ).e(
-    BinaryOps.ADD,
-    xh.e(BinaryOps.MUL, yl)
-  ).e(
-    BinaryOps.ADD,
-    xl.e(BinaryOps.MUL, yl)
-  )
-
-  return rx, ry
-
-def _dfmul_f2_f2_f(x_x:LazyBuffer, x_y:LazyBuffer, y:LazyBuffer) -> Tuple[LazyBuffer, LazyBuffer]:
-  xh = _upperf(x_x)
-  yh = _upperf(y)
-  xl = x_x.e(BinaryOps.ADD, xh.e(UnaryOps.NEG))
-  yl = y.e(BinaryOps.ADD, yh.e(UnaryOps.NEG))
-  rx = x_x.e(BinaryOps.MUL, y)
-  ry = xh.e(BinaryOps.MUL, yh).e(
-    BinaryOps.ADD,
-    rx.e(UnaryOps.NEG)
-  ).e(
-    BinaryOps.ADD,
-    xl.e(BinaryOps.MUL, yh)
-  ).e(
-    BinaryOps.ADD,
-    xh.e(BinaryOps.MUL, yl)
-  ).e(
-    BinaryOps.ADD,
-    xl.e(BinaryOps.MUL, yl)
-  ).e(
-    BinaryOps.ADD,
-    x_y.e(BinaryOps.MUL, y)
-  )
-
-  return rx, ry
-
-def _dfmul_f2_f2_f2(x_x:LazyBuffer, x_y:LazyBuffer, y_x:LazyBuffer, y_y:LazyBuffer) -> Tuple[LazyBuffer, LazyBuffer]:
-  xh = _upperf(x_x)
-  yh = _upperf(y_x)
-  xl = x_x.e(BinaryOps.ADD, xh.e(UnaryOps.NEG))
-  yl = y_x.e(BinaryOps.ADD, yh.e(UnaryOps.NEG))
-  rx = x_x.e(BinaryOps.MUL, y_x)
-  ry = xh.e(BinaryOps.MUL, yh).e(
-    BinaryOps.ADD,
-    rx.e(UnaryOps.NEG)
-  ).e(
-    BinaryOps.ADD,
-    xl.e(BinaryOps.MUL, yh)
-  ).e(
-    BinaryOps.ADD,
-    xh.e(BinaryOps.MUL, yl)
-  ).e(
-    BinaryOps.ADD,
-    xl.e(BinaryOps.MUL, yl)
-  ).e(
-    BinaryOps.ADD,
-    x_x.e(BinaryOps.MUL, y_y)
-  ).e(
-    BinaryOps.ADD,
-    x_y.e(BinaryOps.MUL, y_x)
-  )  
-
-  return rx, ry
-
-def _dfadd2_f2_f2_f2(x_x:LazyBuffer, x_y:LazyBuffer, y_x:LazyBuffer, y_y:LazyBuffer) -> Tuple[LazyBuffer, LazyBuffer]:
-  r_x = x_x.e(BinaryOps.ADD, y_x)
-  v = r_x.e(BinaryOps.ADD, x_x.e(UnaryOps.NEG))
-  r_y = x_x.e(BinaryOps.ADD, r_x.e(BinaryOps.ADD, v.e(UnaryOps.NEG)).e(UnaryOps.NEG)).e(BinaryOps.ADD, y_x.e(BinaryOps.ADD, v.e(UnaryOps.NEG)))
-  r_y = r_y.e(BinaryOps.ADD, x_y.e(BinaryOps.ADD, y_y))
-  return r_x, r_y
-
-def _dfadd2_f2_f_f2(x:LazyBuffer, y_x:LazyBuffer, y_y:LazyBuffer) -> Tuple[LazyBuffer, LazyBuffer]:
-  r_x = x.e(BinaryOps.ADD, y_x)
-  r_y = x.e(BinaryOps.ADD, r_x.e(UnaryOps.NEG)).e(BinaryOps.ADD, y_x).e(BinaryOps.ADD, y_y)
-  return r_x, r_y
-
-def _ilogb2k(d:LazyBuffer) -> LazyBuffer:
-  assert d.dtype in [dtypes.float64, dtypes.float32, dtypes.float16]
-  significand_bits = _significand_bits(d.dtype)
-  exponent_mask = _exponent_mask(d.dtype)
-  exponent_bias = _exponent_bias(d.dtype)+1
-  dint = d.cast({dtypes.float64: dtypes.int64, dtypes.float32: dtypes.int32, dtypes.float16: dtypes.int16}[d.dtype], True)
-  return dint.e(BinaryOps.SHR, dint.const(significand_bits)).e(BinaryOps.AND, dint.const(exponent_mask)).e(BinaryOps.ADD, dint.const(-exponent_bias))
-
-def _pow2if(q: LazyBuffer) -> LazyBuffer:
-  assert q.dtype in (dtypes.int32, dtypes.int64)
-  if q.dtype == dtypes.int32: return q.e(BinaryOps.ADD, q.const(127)).e(BinaryOps.SHL, q.const(23)).cast(dtypes.float32, True)
-  if q.dtype == dtypes.int64: return q.e(BinaryOps.ADD, q.const(1023)).e(BinaryOps.SHL, q.const(52)).cast(dtypes.float64, True)
-
-def _ldexp2kf(d: LazyBuffer, e: LazyBuffer) -> LazyBuffer:
-  assert d.dtype in (dtypes.float32, dtypes.float64)
-  assert e.dtype in (dtypes.int32, dtypes.int64)
-  return d.e(BinaryOps.MUL, _pow2if(e.e(BinaryOps.SHR, e.const(1)))).e(BinaryOps.MUL, _pow2if(e.e(BinaryOps.ADD, e.e(BinaryOps.SHR, e.const(1)).e(UnaryOps.NEG))))
-
-def _ldexp3k(d:LazyBuffer, e:LazyBuffer) -> LazyBuffer:
-  assert d.dtype in (dtypes.float16, dtypes.float32, dtypes.float64)
-  assert e.dtype in (dtypes.float16, dtypes.float32, dtypes.float64)
-  cast_map = {dtypes.float64: dtypes.int64, dtypes.float32: dtypes.int32, dtypes.float16: dtypes.int16}
-  e = e.cast(cast_map[d.dtype])
-  m1 = d.cast(cast_map[d.dtype], True)
-  m2 = e.e(BinaryOps.SHL, e.const(_significand_bits(d.dtype)))
-  return m1.e(BinaryOps.ADD, m2).cast(d.dtype, True)
+  return _lazy_map_numbers(x, x.const(math.nan), x.const(math.nan), x.const(math.nan), _xsin_base(x, is_metal=is_metal, fast=fast))
 
 def _xexp2_base(d: LazyBuffer) -> LazyBuffer:
   fp64_p = d.dtype == dtypes.float64
   q = _rintk(d)
   s = d.e(BinaryOps.ADD, q.cast(d.dtype).e(UnaryOps.NEG))
   if fp64_p:
-    # 3.5 ULP
     u = s.const(0.4434359082926529454e-9)
     u = _mla(u, s, s.const(0.7073164598085707425e-8))
     u = _mla(u, s, s.const(0.1017819260921760451e-6))
@@ -468,34 +368,23 @@ def _xexp2_base(d: LazyBuffer) -> LazyBuffer:
 
 def _xexp2(d: LazyBuffer) -> LazyBuffer:
   if 0 in d.shape: return d
-  d_in = d.e(BinaryOps.CMPNE, d.const(math.inf)).e(
-    TernaryOps.WHERE, d.e(BinaryOps.CMPNE, d).e(
-      TernaryOps.WHERE,
-      d.const(0.0),
-      d.e(BinaryOps.CMPNE, d.const(-math.inf)).e(TernaryOps.WHERE, d, d.const(0.0))),
-    d.const(0.0))
-  
-  d = d.e(BinaryOps.CMPNE, d.const(math.inf)).e(
-    TernaryOps.WHERE, d.e(BinaryOps.CMPNE, d).e(
-      TernaryOps.WHERE,
-      d.const(math.nan),
-      d.e(BinaryOps.CMPNE, d.const(-math.inf)).e(TernaryOps.WHERE, _xexp2_base(d_in), d.const(0.0))),
-    d.const(math.inf))
+  x = _lazy_map_numbers(d, d.const(0.0), d.const(0.0), d.const(0.0), d)
+  d = _lazy_map_numbers(d, d.const(math.inf), d.const(0.0), d.const(math.nan), _xexp2_base(x))
   return d
 
 def _xlog2(d: LazyBuffer) -> LazyBuffer:
+  if 0 in d.shape: return d
   FLT_MIN = d.const(1.0)
   fp64_p = d.dtype == dtypes.float64
 
   o = d.e(BinaryOps.CMPLT, FLT_MIN)
   d = o.e(TernaryOps.WHERE, d.e(BinaryOps.MUL, d.const(2 ** 32)), d)
   d = o.e(TernaryOps.WHERE, d.e(BinaryOps.MUL, d.const(2 ** 32)), d)
-  
+
   e = _ilogb2k(d.e(BinaryOps.MUL, d.const(1.0 / 0.75))).cast(d.dtype)
   m = _ldexp3k(d, e.e(UnaryOps.NEG))
-  
+
   e = o.e(TernaryOps.WHERE, e.e(BinaryOps.ADD, e.const(-64)), e)
-  # (m-1)/(m+1)
   x = m.e(BinaryOps.ADD, m.const(-1.0)).e(BinaryOps.MUL, m.e(BinaryOps.ADD, m.const(1.0)).e(UnaryOps.RECIP))
   x2 = x.e(BinaryOps.MUL, x)
 
@@ -526,6 +415,7 @@ def _xlog2(d: LazyBuffer) -> LazyBuffer:
   r = zero_map.e(TernaryOps.WHERE, r, r.const(-math.inf))
   return r
 
+# ************* unary ops *************
 class Sin(Function):
   def forward(self, x: LazyBuffer, fast:bool=False) -> LazyBuffer:
     self.x = x
