@@ -162,7 +162,7 @@ class PTXRenderer(Renderer):
             # pass in the other dtype here
             kk(self.asm_for_op[args](ssa("alu", u), *[r[x] for x in src], src[0].dtype, self.types[src[0].dtype]))
           elif args is BinaryOps.SHR or args is BinaryOps.SHL:
-            kk(self.asm_for_op[args](ssa("alu", u), *[r[0], _cast(r[1], dtypes.uint32, bitcast=False, u=u)], src[0].dtype, self.types[src[0].dtype]))
+            kk(self.asm_for_op[args](ssa("alu", u), r[src[0]], _cast(r[src[1]], dtype, dtypes.uint32, bitcast=False, u=u), src[0].dtype, self.types[src[0].dtype]))
           else:
             kk(self.asm_for_op[args](ssa("alu", u), *[r[x] for x in src], dtype, self.types[dtype]))
         elif uop is UOps.DEFINE_ACC:
