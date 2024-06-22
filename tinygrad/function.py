@@ -169,7 +169,7 @@ def _payne_hanek(d: LazyBuffer, d_base: LazyBuffer, is_metal:bool = False) -> La
   return r.cast(dtype)
 
 def _xsin_base(d: LazyBuffer, is_metal:bool=False, fast:bool=False) -> LazyBuffer:
-  assert d.dtype == dtypes.float32 or d.dtype == dtypes.float64
+  assert d.dtype in [dtypes.float64, dtypes.float32, dtypes.float16]
   d =  d.e(BinaryOps.CMPNE, d.const(math.inf)).e(
     TernaryOps.WHERE, d.e(BinaryOps.CMPNE, d).e(
       TernaryOps.WHERE,
