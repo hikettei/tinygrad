@@ -189,7 +189,7 @@ def _payne_hanek(d: LazyBuffer, d_base: LazyBuffer) -> LazyBuffer:
   p = fr_map.e(TernaryOps.WHERE, p.e(BinaryOps.ADD, p.const(-0x4000000000000000)), p)
   q = fr_map.e(TernaryOps.WHERE, q.e(BinaryOps.ADD, q.const(1)), q)
 
-  d = p.cast(d.dtype)
+  d = p.cast(dtype_via)
   d = d.e(BinaryOps.MUL, d.const(3.4061215800865545e-19))
   r = d.cast(dtype)
 
@@ -211,7 +211,7 @@ def _payne_hanek(d: LazyBuffer, d_base: LazyBuffer) -> LazyBuffer:
 def _xsin_base(d: LazyBuffer, fast:bool=False) -> LazyBuffer:
   assert d.dtype in [dtypes.float64, dtypes.float32, dtypes.float16]
   d = _lazy_map_numbers(d, d.const(0.0), d.const(0.0), d.const(0.0), d)
-  fp32_p = dtypes.float32 == d.dtype or dtypes.float64 == d.dtype#not dtypes.float32 == d.dtype
+  fp32_p = dtypes.float32 == d.dtype or dtypes.float16 == d.dtype
   trig_range_lv1 = d.const(125.0 if fp32_p else 15.0)
   trig_range_lv2 = d.const(39000 if fp32_p else 1e+14)
   m_1_pi = 0.318309886183790671537767526745028724
@@ -334,8 +334,8 @@ def _xexp2_base(d: LazyBuffer) -> LazyBuffer:
     u = _mla(u, s, d.const(0.6931471825e+0))
     u = _mla(u, s, d.const(0.1000000000e+1))
   u = _ldexp2kf(u, q)
-  upper = 1024 if fp64_p else 128
-  lower = -2000 if fp64_p else -150
+  upper = {dtypes.float64: 1024, dtypes.float32: 128, dtypes.float16: 23.0}[d.dtype]
+  lower = {dtypes.float64: -2000, dtypes.float32: -150, dtypes.float16: -150}[d.dtype]
   u = d.e(BinaryOps.CMPNE, d.const(upper)).e(TernaryOps.WHERE, u, d.const(math.inf))
   u = d.e(BinaryOps.CMPLT, d.const(upper)).e(TernaryOps.WHERE, u, d.const(math.inf))
   u = d.e(BinaryOps.CMPLT, d.const(lower)).e(TernaryOps.WHERE, d.const(0.0), u)
