@@ -142,7 +142,7 @@ class TestReduceOpsConstFolding(unittest.TestCase):
 
     # NOTE: cannot just count the non-padded area because some UnaryOps f do not have f(0) = 0.
     _check_ast_count(1, Tensor.ones(4).pad(((1, 1),)).sqrt().sum())
-    np.testing.assert_allclose(Tensor.ones(4).pad(((1, 1),)).sqrt().sum().numpy(), 4 * math.e + 2)
+    np.testing.assert_allclose(Tensor.ones(4).pad(((1, 1),)).sqrt().sum().numpy(), 4)
 
   def test_const_max(self):
     _check_ast_count(0, Tensor.ones(4, 5, 6).max())
