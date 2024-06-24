@@ -132,6 +132,7 @@ def _payne_hanek(d: LazyBuffer, d_base: LazyBuffer) -> LazyBuffer:
   significand_bits = _significand_bits(d.dtype)
   exponent_mask = _exponent_mask(d.dtype)
   exponent_bias = _exponent_bias(d.dtype)
+  exponent_bias = 15 if d.dtype == dtypes.float16 else exponent_bias
   m1 = {dtypes.float64: 0x800FFFFF, dtypes.float32: 0x807FFFFF, dtypes.float16: 0x83FF}[d.dtype] # noqa: E501
   m2 = {dtypes.float64: 0x3FE0000000000000, dtypes.float32: 0x3F000000, dtypes.float16: 0x3C00}[d.dtype] # noqa: E501
   def _frexp(v: LazyBuffer) -> Tuple[LazyBuffer, LazyBuffer]:
@@ -145,7 +146,8 @@ def _payne_hanek(d: LazyBuffer, d_base: LazyBuffer) -> LazyBuffer:
     return value, exp
 
   f, e = _frexp(d)
-  ia = (k := f.cast(d.dtype)).e(BinaryOps.MUL, k.const(4.294967296e9)).cast(dtypes.uint64)
+  dtype_via = dtypes.float32 if d.dtype == dtypes.float16 else d.dtype
+  ia = (k := f.cast(d.dtype).cast(dtype_via)).e(BinaryOps.MUL, k.const(4.294967296e9)).cast(dtypes.uint64)
 
   i = (k := e.cast(dtypes.uint64)).e(BinaryOps.SHR, k.const(5))
   e = (k := e.cast(dtypes.uint64)).e(BinaryOps.AND, k.const(31))
@@ -209,8 +211,7 @@ def _payne_hanek(d: LazyBuffer, d_base: LazyBuffer) -> LazyBuffer:
 def _xsin_base(d: LazyBuffer, fast:bool=False) -> LazyBuffer:
   assert d.dtype in [dtypes.float64, dtypes.float32, dtypes.float16]
   d = _lazy_map_numbers(d, d.const(0.0), d.const(0.0), d.const(0.0), d)
-
-  fp32_p = dtypes.float32 == d.dtype
+  fp32_p = dtypes.float32 == d.dtype or dtypes.float64 == d.dtype#not dtypes.float32 == d.dtype
   trig_range_lv1 = d.const(125.0 if fp32_p else 15.0)
   trig_range_lv2 = d.const(39000 if fp32_p else 1e+14)
   m_1_pi = 0.318309886183790671537767526745028724
@@ -234,8 +235,9 @@ def _xsin_base(d: LazyBuffer, fast:bool=False) -> LazyBuffer:
     return (
       _rintk(x.e(BinaryOps.MUL, d.const(m_1_pi))).cast(d.dtype) if fp32_p else _rintk(_mla(d, d.const(m_1_pi), qdh.e(UnaryOps.NEG))).cast(d.dtype)
     )
-
+  
   lv3_reduced_d = _payne_hanek(di, d)
+  #return lv3_reduced_d
   lv3_q = __lv2q(d) if fast else __lv2q(lv3_reduced_d)
   q: LazyBuffer = di.e(BinaryOps.CMPLT, trig_range_lv1).e(TernaryOps.WHERE, __lv1q(d), di.e(BinaryOps.CMPLT, trig_range_lv2).e(TernaryOps.WHERE, __lv2q(d), lv3_q)) # noqa: E501
   def __lv1(x: LazyBuffer) -> LazyBuffer:
@@ -266,6 +268,7 @@ def _xsin_base(d: LazyBuffer, fast:bool=False) -> LazyBuffer:
     return d
 
   lv3_d = __lv2(d) if fast else __lv2(lv3_reduced_d)
+
   d = di.e(BinaryOps.CMPLT, trig_range_lv1).e(TernaryOps.WHERE, __lv1(d), di.e(BinaryOps.CMPLT, trig_range_lv2).e(TernaryOps.WHERE, __lv2(d), lv3_d))
   s = d.e(BinaryOps.MUL, d)
   a = q.cast(dtypes.int64).e(BinaryOps.MOD, d.const(2).cast(dtypes.int64)).cast(d.dtype)
