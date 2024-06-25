@@ -88,7 +88,7 @@ def pow2if(q: LazyBuffer, float_dtype: DType):
 
 def ldexp2kf(d: LazyBuffer, e: LazyBuffer) -> LazyBuffer:
   assert is_dtype_fastmath_supported(d.dtype) and e.dtype in (dtypes.int16, dtypes.int32, dtypes.int64)
-  return d._copy(d.device).e(BinaryOps.MUL, pow2if(e.e(BinaryOps.SHR, e.const(1)), d.dtype)).e(BinaryOps.MUL, pow2if(e.e(BinaryOps.ADD, e.e(BinaryOps.SHR, e.const(1)).e(UnaryOps.NEG)), d.dtype)) # noqa: E501
+  return d.e(BinaryOps.MUL, pow2if(e.e(BinaryOps.SHR, e.const(1)), d.dtype)).e(BinaryOps.MUL, pow2if(e.e(BinaryOps.ADD, e.e(BinaryOps.SHR, e.const(1)).e(UnaryOps.NEG)), d.dtype)) # noqa: E501
 
 def frexp(v: LazyBuffer) -> Tuple[LazyBuffer, LazyBuffer]:
   m1 = {dtypes.float64: 0x800FFFFF, dtypes.float32: 0x807FFFFF, dtypes.float16: 0x83FF}[v.dtype] # noqa: E501
@@ -313,13 +313,12 @@ def xexp2(d: LazyBuffer) -> LazyBuffer:
   assert is_dtype_fastmath_supported(d.dtype)
   if 0 in d.shape: return d
   x = _lazy_map_numbers(d, d.const(0.0), d.const(0.0), d.const(0.0), d)
-  u = _xexp2_base(x)
+  dc = d._copy(d.device)
+  u = _lazy_map_numbers(dc, d.const(math.inf), d.const(0.0), d.const(math.nan), _xexp2_base(x))
   upper = {dtypes.float64: 1024, dtypes.float32: 128, dtypes.float16: 23.0}[d.dtype]
   lower = {dtypes.float64: -2000, dtypes.float32: -150, dtypes.float16: -22}[d.dtype]
-  dc = d._copy(d.device)
   u = dc.e(BinaryOps.CMPNE, d.const(upper)).e(TernaryOps.WHERE, u, d.const(math.inf))
   u = dc.e(BinaryOps.CMPLT, d.const(upper)).e(TernaryOps.WHERE, u, d.const(math.inf))
   u = dc.e(BinaryOps.CMPLT, d.const(lower)).e(TernaryOps.WHERE, d.const(0.0), u)
-  u = _lazy_map_numbers(dc, d.const(math.inf), d.const(0.0), d.const(math.nan), u)
   return u
 
