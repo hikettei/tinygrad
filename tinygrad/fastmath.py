@@ -257,7 +257,13 @@ def _xexp2_base(d: LazyBuffer) -> LazyBuffer:
     u = polyN(s.const(0.4434359082926529454e-9), s, [0.7073164598085707425e-8, 0.1017819260921760451e-6, 0.1321543872511327615e-5, 0.1525273353517584730e-4, 0.1540353045101147808e-3, 0.1333355814670499073e-2, 0.9618129107597600536e-2, 0.5550410866482046596e-1, 0.2402265069591012214e+0, 0.6931471805599452862e+0, 0.1000000000000000000e+1]) # noqa: E501
   else:
     u = polyN(s.const(0.1535920892e-3), s, [0.1339262701e-2, 0.9618384764e-2, 0.5550347269e-1, 0.2402264476e+0, 0.6931471825e+0, 0.1000000000e+1])
-  return ldexp2kf(u, q)
+  u = ldexp2kf(u, q)
+  upper = {dtypes.float64: 1024, dtypes.float32: 128, dtypes.float16: 23.0}[d.dtype]
+  lower = {dtypes.float64: -2000, dtypes.float32: -150, dtypes.float16: -22}[d.dtype]
+  u = d.e(BinaryOps.CMPNE, d.const(upper)).e(TernaryOps.WHERE, u, d.const(math.inf))
+  u = d.e(BinaryOps.CMPLT, d.const(upper)).e(TernaryOps.WHERE, u, d.const(math.inf))
+  u = d.e(BinaryOps.CMPLT, d.const(lower)).e(TernaryOps.WHERE, d.const(0.0), u)
+  return u
 
 # when denormal=True, dedicated to x < FLT_MIN, when False, dedicated to x >= FLT_MIN
 def _xlog2_base(d: LazyBuffer, denormal: bool) -> LazyBuffer:
@@ -312,13 +318,7 @@ def xlog2(d: LazyBuffer) -> LazyBuffer:
 def xexp2(d: LazyBuffer) -> LazyBuffer:
   assert is_dtype_fastmath_supported(d.dtype)
   if 0 in d.shape: return d
-  x = _lazy_map_numbers(d, d.const(0.0), d.const(0.0), d.const(0.0), d)
-  dc = d._copy(d.device)
-  u = _lazy_map_numbers(dc, d.const(math.inf), d.const(0.0), d.const(math.nan), _xexp2_base(x))
-  upper = {dtypes.float64: 1024, dtypes.float32: 128, dtypes.float16: 23.0}[d.dtype]
-  lower = {dtypes.float64: -2000, dtypes.float32: -150, dtypes.float16: -22}[d.dtype]
-  u = dc.e(BinaryOps.CMPNE, d.const(upper)).e(TernaryOps.WHERE, u, d.const(math.inf))
-  u = dc.e(BinaryOps.CMPLT, d.const(upper)).e(TernaryOps.WHERE, u, d.const(math.inf))
-  u = dc.e(BinaryOps.CMPLT, d.const(lower)).e(TernaryOps.WHERE, d.const(0.0), u)
+  x = _lazy_map_numbers(d, d.const(0.0), d.const(0.0), d.const(0.0), d._copy(d.device))
+  u = _lazy_map_numbers(d, d.const(math.inf), d.const(0.0), d.const(math.nan), _xexp2_base(x))
   return u
 
