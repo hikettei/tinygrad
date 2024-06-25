@@ -75,7 +75,7 @@ def ilogb2k(d:LazyBuffer) -> LazyBuffer:
 def ldexp3k(d:LazyBuffer, e:LazyBuffer) -> LazyBuffer:
   assert is_dtype_fastmath_supported(d.dtype) and is_dtype_fastmath_supported(e.dtype)
   dtype = d.dtype
-  d = d._copy(d.device).cast(dtypes.float64) if d.device != "METAL" else d
+  d = d.cast(dtypes.float64) if d.device != "METAL" else d
   cast_map = {dtypes.float64: dtypes.int64, dtypes.float32: dtypes.int32, dtypes.float16: dtypes.int16}
   e = e.cast(cast_map[d.dtype])
   m1 = d.cast(cast_map[d.dtype], True)
@@ -318,7 +318,7 @@ def xlog2(d: LazyBuffer) -> LazyBuffer:
 def xexp2(d: LazyBuffer) -> LazyBuffer:
   assert is_dtype_fastmath_supported(d.dtype)
   if 0 in d.shape: return d
-  x = _lazy_map_numbers(d, d.const(0.0), d.const(0.0), d.const(0.0), d._copy(d.device))
+  x = _lazy_map_numbers(d, d.const(0.0), d.const(0.0), d.const(0.0), d)
   u = _lazy_map_numbers(d, d.const(math.inf), d.const(0.0), d.const(math.nan), _xexp2_base(x))
   return u
 
