@@ -75,7 +75,7 @@ def ilogb2k(d:LazyBuffer) -> LazyBuffer:
 def ldexp3k(d:LazyBuffer, e:LazyBuffer) -> LazyBuffer:
   assert is_dtype_fastmath_supported(d.dtype) and is_dtype_fastmath_supported(e.dtype)
   dtype = d.dtype
-  d = d.cast(dtypes.float64) if d.device != "METAL" else d
+  d = d._copy(d.device).cast(dtypes.float64) if d.device != "METAL" else d
   cast_map = {dtypes.float64: dtypes.int64, dtypes.float32: dtypes.int32, dtypes.float16: dtypes.int16}
   e = e.cast(cast_map[d.dtype])
   m1 = d.cast(cast_map[d.dtype], True)
@@ -88,7 +88,7 @@ def pow2if(q: LazyBuffer, float_dtype: DType):
 
 def ldexp2kf(d: LazyBuffer, e: LazyBuffer) -> LazyBuffer:
   assert is_dtype_fastmath_supported(d.dtype) and e.dtype in (dtypes.int16, dtypes.int32, dtypes.int64)
-  return d.e(BinaryOps.MUL, pow2if(e.e(BinaryOps.SHR, e.const(1)), d.dtype)).e(BinaryOps.MUL, pow2if(e.e(BinaryOps.ADD, e.e(BinaryOps.SHR, e.const(1)).e(UnaryOps.NEG)), d.dtype)) # noqa: E501
+  return d._copy(d.device).e(BinaryOps.MUL, pow2if(e.e(BinaryOps.SHR, e.const(1)), d.dtype)).e(BinaryOps.MUL, pow2if(e.e(BinaryOps.ADD, e.e(BinaryOps.SHR, e.const(1)).e(UnaryOps.NEG)), d.dtype)) # noqa: E501
 
 def frexp(v: LazyBuffer) -> Tuple[LazyBuffer, LazyBuffer]:
   m1 = {dtypes.float64: 0x800FFFFF, dtypes.float32: 0x807FFFFF, dtypes.float16: 0x83FF}[v.dtype] # noqa: E501
@@ -257,13 +257,7 @@ def _xexp2_base(d: LazyBuffer) -> LazyBuffer:
     u = polyN(s.const(0.4434359082926529454e-9), s, [0.7073164598085707425e-8, 0.1017819260921760451e-6, 0.1321543872511327615e-5, 0.1525273353517584730e-4, 0.1540353045101147808e-3, 0.1333355814670499073e-2, 0.9618129107597600536e-2, 0.5550410866482046596e-1, 0.2402265069591012214e+0, 0.6931471805599452862e+0, 0.1000000000000000000e+1]) # noqa: E501
   else:
     u = polyN(s.const(0.1535920892e-3), s, [0.1339262701e-2, 0.9618384764e-2, 0.5550347269e-1, 0.2402264476e+0, 0.6931471825e+0, 0.1000000000e+1])
-  u = ldexp2kf(u, q)
-  upper = {dtypes.float64: 1024, dtypes.float32: 128, dtypes.float16: 23.0}[d.dtype]
-  lower = {dtypes.float64: -2000, dtypes.float32: -150, dtypes.float16: -150}[d.dtype]
-  u = d.e(BinaryOps.CMPNE, d.const(upper)).e(TernaryOps.WHERE, u, d.const(math.inf))
-  u = d.e(BinaryOps.CMPLT, d.const(upper)).e(TernaryOps.WHERE, u, d.const(math.inf))
-  u = d.e(BinaryOps.CMPLT, d.const(lower)).e(TernaryOps.WHERE, d.const(0.0), u)
-  return u
+  return ldexp2kf(u, q)
 
 # when denormal=True, dedicated to x < FLT_MIN, when False, dedicated to x >= FLT_MIN
 def _xlog2_base(d: LazyBuffer, denormal: bool) -> LazyBuffer:
@@ -319,6 +313,13 @@ def xexp2(d: LazyBuffer) -> LazyBuffer:
   assert is_dtype_fastmath_supported(d.dtype)
   if 0 in d.shape: return d
   x = _lazy_map_numbers(d, d.const(0.0), d.const(0.0), d.const(0.0), d)
-  d = _lazy_map_numbers(d, d.const(math.inf), d.const(0.0), d.const(math.nan), _xexp2_base(x))
-  return d
+  u = _xexp2_base(x)
+  upper = {dtypes.float64: 1024, dtypes.float32: 128, dtypes.float16: 23.0}[d.dtype]
+  lower = {dtypes.float64: -2000, dtypes.float32: -150, dtypes.float16: -22}[d.dtype]
+  dc = d._copy(d.device)
+  u = dc.e(BinaryOps.CMPNE, d.const(upper)).e(TernaryOps.WHERE, u, d.const(math.inf))
+  u = dc.e(BinaryOps.CMPLT, d.const(upper)).e(TernaryOps.WHERE, u, d.const(math.inf))
+  u = dc.e(BinaryOps.CMPLT, d.const(lower)).e(TernaryOps.WHERE, d.const(0.0), u)
+  u = _lazy_map_numbers(dc, d.const(math.inf), d.const(0.0), d.const(math.nan), u)
+  return u
 
