@@ -111,6 +111,7 @@ def payne_hanek_reduction(d: LazyBuffer, d_base: LazyBuffer) -> LazyBuffer:
   input_dtype: DType = d.dtype
   dtype_via = dtypes.float32 if d.dtype == dtypes.float16 else d.dtype
   f, e = frexp(d)
+  uint = dtypes.uint64
   ia = (k := f.cast(dtype_via)).e(BinaryOps.MUL, k.const(4.294967296e9)).cast(uint)
   i = (k := e.cast(uint)).e(BinaryOps.SHR, k.const(5))
   e = (k := e.cast(uint)).e(BinaryOps.AND, k.const(31))
