@@ -73,8 +73,8 @@ def universal_test_unary(a, dtype, op, nan_to_zero=False):
   tensor_value = out.numpy()
   numpy_value = op[1](np.array([a]).astype(_to_np_dtype(dtype)))
   if nan_to_zero:
-    tensor_value[np.isnan(tensor_value)] = 0
-    numpy_value[np.isnan(numpy_value)] = 0    
+    tensor_value = np.nan_to_num(tensor_value)
+    numpy_value = np.nan_to_num(numpy_value)
   if dtype in dtypes_float:
     np.testing.assert_allclose(tensor_value, numpy_value, atol=1e-3, rtol=1e-2)
   else: np.testing.assert_equal(tensor_value, numpy_value)
