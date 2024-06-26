@@ -41,7 +41,7 @@ class Reciprocal(Function):
 class Sin(Function):
   def forward(self, x: LazyBuffer, fast:bool=False) -> LazyBuffer:
     self.x = x
-    self.fast = fast or self.device in ["PTX", "NV", "CUDA"]
+    self.fast = False#fast or self.device in ["PTX", "NV", "CUDA"]
     self.fast_approx = x.dtype in [dtypes.float16, dtypes.float32, dtypes.float64]
     if self.fast_approx:
       return xsin(x, fast=self.fast)
@@ -64,7 +64,7 @@ class Relu(Function):
 class Log(Function):
   def forward(self, x:LazyBuffer) -> LazyBuffer:
     self.x = x
-    fast_approx = False#x.dtype in [dtypes.float16, dtypes.float32, dtypes.float64]
+    fast_approx = x.dtype in [dtypes.float16, dtypes.float32, dtypes.float64]
     x = xlog2(x) if fast_approx else x.e(UnaryOps.LOG2)
     return x.e(BinaryOps.MUL, x.const(math.log(2)))
 
@@ -72,7 +72,7 @@ class Log(Function):
 
 class Exp(Function):
   def forward(self, x:LazyBuffer) -> LazyBuffer:
-    fast_approx = False#x.dtype in [dtypes.float16, dtypes.float32, dtypes.float64]
+    fast_approx = x.dtype in [dtypes.float16, dtypes.float32, dtypes.float64]
     self.ret = x.e(BinaryOps.MUL, x.const(1/math.log(2)))
     self.ret = xexp2(self.ret) if fast_approx else self.ret.e(UnaryOps.EXP2)
     return self.ret
