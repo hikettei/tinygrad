@@ -119,7 +119,8 @@ class TestDTypeALU(unittest.TestCase):
   @unittest.skipIf(Device.DEFAULT == "LLVM", "TODO: isnan(x) for LLVM")
   @given(ht.float16, strat.sampled_from(unary_operations))
   def test_float16_unary(self, a, op): universal_test_unary(a, dtypes.float16, op)
-
+  
+  @unittest.skipUnless(is_dtype_supported(dtypes.float16, Device.DEFAULT), f"no float16 on {Device.DEFAULT}")
   @given(ht.float16, strat.sampled_from(unary_operations))
   def test_float16_unary_nan_masked(self, a, op): universal_test_unary(a, dtypes.float16, op, nan_to_zero=True)
 
