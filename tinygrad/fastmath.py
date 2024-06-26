@@ -110,11 +110,11 @@ def payne_hanek_reduction(d: LazyBuffer, d_base: LazyBuffer) -> LazyBuffer:
 
   input_dtype: DType = d.dtype
   dtype_via = dtypes.float32 if d.dtype == dtypes.float16 else d.dtype
-
+  uint = dtypes.uint32 #if d.device in ["AMD", "NV", "CUDA", "PTX"] else dtypes.uint64
   f, e = frexp(d)
-  ia = (k := f.cast(dtype_via)).e(BinaryOps.MUL, k.const(4.294967296e9)).cast(dtypes.uint64)
-  i = (k := e.cast(dtypes.uint64)).e(BinaryOps.SHR, k.const(5))
-  e = (k := e.cast(dtypes.uint64)).e(BinaryOps.AND, k.const(31))
+  ia = (k := f.cast(dtype_via)).e(BinaryOps.MUL, k.const(4.294967296e9)).cast(uint)
+  i = (k := e.cast(uint)).e(BinaryOps.SHR, k.const(5))
+  e = (k := e.cast(uint)).e(BinaryOps.AND, k.const(31))
 
   def _eq(arr: LazyBuffer, eq_to: int) -> LazyBuffer: return arr.e(BinaryOps.CMPNE, arr.const(eq_to))
 
