@@ -43,6 +43,8 @@ class Sin(Function):
     self.x = x
     self.fast = fast or self.device in ["PTX", "NV", "CUDA"]
     self.fast_approx = x.dtype in [dtypes.float16, dtypes.float32, dtypes.float64]
+    if x.device in ["PTX", "AMD", "NV", "CUDA"]:
+      self.fast_approx=False
     if self.fast_approx:
       return xsin(x, fast=self.fast)
     return x.e(UnaryOps.SIN)
@@ -65,7 +67,7 @@ class Log(Function):
   def forward(self, x:LazyBuffer) -> LazyBuffer:
     self.x = x
     fast_approx = x.dtype in [dtypes.float16, dtypes.float32, dtypes.float64]
-    if x.device in ["PTX", "AMD"]:
+    if x.device in ["PTX", "AMD", "NV", "CUDA"]:
       fast_approx=False
     x = xlog2(x) if fast_approx else x.e(UnaryOps.LOG2)
     return x.e(BinaryOps.MUL, x.const(math.log(2)))
