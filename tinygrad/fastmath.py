@@ -70,7 +70,7 @@ def ilogb2k(d:LazyBuffer) -> LazyBuffer:
   assert is_dtype_fastmath_supported(d.dtype)
   dint = d.cast({dtypes.float64: dtypes.int64, dtypes.float32: dtypes.int32, dtypes.float16: dtypes.int16}[d.dtype], True, True)
   # ((float_to_bits(d) >> significand_bits(dtype)) & exponent_mask(dtype)) - exponent_bias(dtype)
-  return dint.e(BinaryOps.SHR, dint.const(significand_bits(d.dtype))).e(BinaryOps.AND, dint.const(exponent_mask(d.dtype))).e(BinaryOps.ADD, dint.const(-(exponent_bias(d.dtype)+1))) # noqa: E501
+  return dint.e(BinaryOps.SHR, dint.const(significand_bits(d.dtype))).e(BinaryOps.AND, dint.const(exponent_mask(d.dtype))).e(BinaryOps.ADD, dint.const(-((exponent_bias(d.dtype)+1)))) # noqa: E501
 
 def ldexp3k(d:LazyBuffer, e:LazyBuffer) -> LazyBuffer:
   assert is_dtype_fastmath_supported(d.dtype) and is_dtype_fastmath_supported(e.dtype)
