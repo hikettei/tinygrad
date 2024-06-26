@@ -73,7 +73,7 @@ def universal_test_unary(a, dtype, op):
   tensor_value = out.numpy()
   numpy_value = op[1](np.array([a]).astype(_to_np_dtype(dtype)))
   if dtype in dtypes_float:
-    np.testing.assert_allclose(tensor_value, numpy_value, atol=1e-3, rtol=1e-2)
+    np.testing.assert_allclose(tensor_value, numpy_value, atol=1e-3, rtol=1e-2, equal_nan=False)
   else: np.testing.assert_equal(tensor_value, numpy_value)
   if op[0] != Tensor.reciprocal: # reciprocal is not supported in most backends
     op = [x for x in ast.lazyops if x.op in UnaryOps][0]
