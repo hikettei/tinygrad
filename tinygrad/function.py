@@ -45,7 +45,8 @@ class Sin(Function):
     self.fast_approx = x.dtype in [dtypes.float16, dtypes.float32, dtypes.float64]
     if self.fast_approx:
       return xsin(x, fast=self.fast)
-    return x.e(UnaryOps.SIN)
+    assert False, f"BFLOAT16? {x.dtype}"
+#    return x.e(UnaryOps.SIN)
 
   def backward(self, grad_output: LazyBuffer) -> LazyBuffer:
     k = self.x.const(math.pi / 2).e(BinaryOps.ADD, self.x.e(UnaryOps.NEG))
@@ -66,6 +67,7 @@ class Log(Function):
     self.x = x
     fast_approx = x.dtype in [dtypes.float16, dtypes.float32, dtypes.float64]
     x = xlog2(x) if fast_approx else x.e(UnaryOps.LOG2)
+    assert fast_approx, f"BFLOAT16? {x.dtype}"
     return x.e(BinaryOps.MUL, x.const(math.log(2)))
 
   def backward(self, grad_output:LazyBuffer) -> LazyBuffer: return grad_output.e(BinaryOps.MUL, self.x.e(UnaryOps.RECIP))
@@ -75,6 +77,7 @@ class Exp(Function):
     fast_approx = x.dtype in [dtypes.float16, dtypes.float32, dtypes.float64]
     self.ret = x.e(BinaryOps.MUL, x.const(1/math.log(2)))
     self.ret = xexp2(self.ret) if fast_approx else self.ret.e(UnaryOps.EXP2)
+    assert fast_approx, f"BFLOAT16? {x.dtype}"
     return self.ret
 
   def backward(self, grad_output:LazyBuffer) -> LazyBuffer: return self.ret.e(BinaryOps.MUL, grad_output)
