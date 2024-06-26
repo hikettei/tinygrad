@@ -32,8 +32,8 @@ def helper_test_op(shps, torch_fxn, tinygrad_fxn=None, atol=1e-6, rtol=1e-3, gra
   def compare(s, tinygrad_output, torch_output, atol, rtol):
     if PRINT_TENSORS: print(s, tinygrad_output, torch_output)
     if nan_to_zero:
-      tinygrad_output = np.nan_to_num(tinygrad_output)
-      torch_output = np.nan_to_num(torch_output)
+      tinygrad_output = np.nan_to_num(tinygrad_output, posinf=0, neginf=0)
+      torch_output = np.nan_to_num(torch_output, posinf=0, neginf=0)
     try:
       assert tinygrad_output.shape == torch_output.shape, f"shape mismatch: tinygrad={tinygrad_output.shape} | torch={torch_output.shape}"
       assert tinygrad_output.dtype == torch_output.dtype, f"dtype mismatch: tinygrad={tinygrad_output.dtype} | torch={torch_output.dtype}"
