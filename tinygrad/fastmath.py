@@ -10,7 +10,7 @@ def dtype_of(d: LazyBuffer) -> DType:
   if is_dtype_supported(dtypes.bfloat16, d.device):
     return dtypes.bfloat16 if d.dtype == dtypes.bfloat16 else d.dtype
   return d.dtype
-    
+
 def is_dtype_fastmath_supported(d: DType):
   return d in [dtypes.float16, dtypes.float32, dtypes.float64]
 
@@ -97,9 +97,8 @@ def ldexp2kf(d: LazyBuffer, e: LazyBuffer) -> LazyBuffer:
   return d.e(BinaryOps.MUL, pow2if(e.e(BinaryOps.SHR, e.const(1)), dtype_of(d))).e(BinaryOps.MUL, pow2if(e.e(BinaryOps.ADD, e.e(BinaryOps.SHR, e.const(1)).e(UnaryOps.NEG)), dtype_of(d))) # noqa: E501
 
 def frexp(v: LazyBuffer) -> Tuple[LazyBuffer, LazyBuffer]:
-  # TODO: Update
-  m1 = {dtypes.float64: 0x800FFFFF, dtypes.float32: 0x807FFFFF, dtypes.float16: 0x83FF}[v.dtype] # noqa: E501
-  m2 = {dtypes.float64: 0x3FE0000000000000, dtypes.float32: 0x3F000000, dtypes.float16: 0x3C00}[v.dtype] # noqa: E501
+  m1 = {dtypes.float64: 0x800FFFFF, dtypes.float32: 0x807FFFFF, dtypes.float16: 0x83FF, dtypes.bfloat16: 0x80FF}[dtype_of(v)] # noqa: E501
+  m2 = {dtypes.float64: 0x3FE0000000000000, dtypes.float32: 0x3F000000, dtypes.float16: 0x3C00, dtypes.bfloat16: 0x3F00}[dtype_of(v)] # noqa: E501
   bits = float_to_bits(v)
   exponent = bits.e(BinaryOps.SHR, bits.const(significand_bits(dtype_of(v)))).e(BinaryOps.AND, bits.const(exponent_mask(dtype_of(v))))
   exponent_zero = exponent.e(BinaryOps.CMPNE, exponent.const(0.0))
