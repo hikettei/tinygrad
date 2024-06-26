@@ -41,7 +41,7 @@ class Reciprocal(Function):
 class Sin(Function):
   def forward(self, x: LazyBuffer, fast:bool=False) -> LazyBuffer:
     self.x = x
-    self.fast = fast or self.device in ["PTX", "NV", "CUDA", "AMD"]
+    self.fast = fast or self.device in ["AMD"]
     self.fast_approx = x.dtype in [dtypes.float16, dtypes.float32, dtypes.float64]
     #if x.device in ["PTX", "AMD", "NV", "CUDA"]:
     #  self.fast_approx=False
