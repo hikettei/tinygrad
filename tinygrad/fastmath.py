@@ -265,14 +265,15 @@ def _xexp2_base(d: LazyBuffer) -> LazyBuffer:
   u = d.e(BinaryOps.CMPLT, d.const(lower)).e(TernaryOps.WHERE, d.const(0.0), u)
   return u
 
-# when denormal=True, dedicated to x < FLT_MIN, when False, dedicated to x >= FLT_MIN
+# when denormal=True, _xlog2_base is dedicated to x < FLT_MIN, when False, dedicated to x >= FLT_MIN
 def _xlog2_base(d: LazyBuffer, denormal: bool) -> LazyBuffer:
   if 0 in d.shape: return d
   fp64_p = d.dtype == dtypes.float64
 
   # d *= 2**32 * 2**32
-  for _ in range(2):
-    d = d.e(BinaryOps.MUL, d.const(2 ** 32)) if denormal else d
+  
+  for _ in range(4):
+    d = d.e(BinaryOps.MUL, d.const(2 ** 16)) if denormal else d
 
   e = ilogb2k(d.e(BinaryOps.MUL, d.const(1.0 / 0.75))).cast(d.dtype)
   m = ldexp3k(d, e.e(UnaryOps.NEG))
