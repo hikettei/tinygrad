@@ -75,7 +75,7 @@ def ilogb2k(d:LazyBuffer) -> LazyBuffer:
 def ldexp3k(d:LazyBuffer, e:LazyBuffer) -> LazyBuffer:
   assert is_dtype_fastmath_supported(d.dtype) and is_dtype_fastmath_supported(e.dtype)
   dtype = d.dtype
-  d = d.cast(dtypes.float64) if d.device != "METAL" else d
+  d = d#d.cast(dtypes.float64) if d.device not in ["CLANG" "METAL"] else d
   cast_map = {dtypes.float64: dtypes.int64, dtypes.float32: dtypes.int32, dtypes.float16: dtypes.int16}
   e = e.cast(cast_map[d.dtype])
   m1 = d.cast(cast_map[d.dtype], True, True)
@@ -271,9 +271,8 @@ def _xlog2_base(d: LazyBuffer, denormal: bool) -> LazyBuffer:
   fp64_p = d.dtype == dtypes.float64
 
   # d *= 2**32 * 2**32
-  
-  for _ in range(4):
-    d = d.e(BinaryOps.MUL, d.const(2 ** 16)) if denormal else d
+  for _ in range(2):
+    d = d.e(BinaryOps.MUL, d.const(2 ** 32)) if denormal else d
 
   e = ilogb2k(d.e(BinaryOps.MUL, d.const(1.0 / 0.75))).cast(d.dtype)
   m = ldexp3k(d, e.e(UnaryOps.NEG))
