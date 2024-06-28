@@ -164,7 +164,7 @@ class PTXRenderer(Renderer):
           elif args is BinaryOps.SHL or args is BinaryOps.SHR:
             # the right operand must be uint32 regardless of the instruction type
             operands = [r[x] for x in src]
-            #operands[1] = _cast(operands[1], dtypes.uint32, dtype, u=u)
+            operands[1] = _cast(operands[1], dtype, dtypes.uint32, u=u)
             kk(self.asm_for_op[args](ssa("alu", u), *operands, src[0].dtype, self.types[src[0].dtype]))
           else:
             kk(self.asm_for_op[args](ssa("alu", u), *[r[x] for x in src], dtype, self.types[dtype]))
