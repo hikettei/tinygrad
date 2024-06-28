@@ -2492,7 +2492,7 @@ class Tensor:
     """
     return F.Xor.apply(*self._broadcasted(x, reverse))
 
-  def lshift(self, x:int):
+  def lshift(self, x:Union[Tensor, ConstType]):
     """
     Computes left arithmetic shift of `self` by `x` bits. `self` must have unsigned dtype.
     Equivalent to `self << x`.
@@ -2501,10 +2501,10 @@ class Tensor:
     print(Tensor([1, 3, 31], dtype=dtypes.uint8).lshift(2).numpy())
     ```
     """
-    assert dtypes.is_unsigned(self.dtype) and isinstance(x, int) and x >= 0, f"not supported {self.dtype=} {x=}"
-    return self.mul(2 ** x)
+    assert dtypes.is_unsigned(self.dtype), f"not supported {self.dtype=} {x=}"
+    return F.LeftShift.apply(*self._broadcasted(x, False))
 
-  def rshift(self, x:int):
+  def rshift(self, x:Union[Tensor, ConstType]):
     """
     Computes right arithmetic shift of `self` by `x` bits. `self` must have unsigned dtype.
     Equivalent to `self >> x`.
@@ -2513,8 +2513,8 @@ class Tensor:
     print(Tensor([4, 13, 125], dtype=dtypes.uint8).rshift(2).numpy())
     ```
     """
-    assert dtypes.is_unsigned(self.dtype) and isinstance(x, int) and x >= 0, f"not supported {self.dtype=} {x=}"
-    return self.div(2 ** x, upcast=False)
+    assert dtypes.is_unsigned(self.dtype), f"not supported {self.dtype=} {x=}"
+    return F.RightShift.apply(*self._broadcasted(x, False))
 
   def pow(self, x:Union[Tensor, ConstType], reverse=False) -> Tensor:
     """
