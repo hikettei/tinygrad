@@ -311,7 +311,7 @@ def xsin(x: LazyBuffer, fast: bool=False) -> LazyBuffer:
 
 def xlog2(d: LazyBuffer) -> LazyBuffer:
   assert is_dtype_fastmath_supported(d.dtype)
-  FLT_MIN = d.const(1e-6 if d.dtype == dtypes.float16 else 1e-4)
+  FLT_MIN = d.const(1e-38 if d.dtype == dtypes.float16 else 1e-38)
   out = d.e(BinaryOps.CMPLT, FLT_MIN).e(TernaryOps.WHERE, _xlog2_base(d, True), _xlog2_base(d, False))
   return d.e(BinaryOps.CMPNE, d.const(0.0)).e(TernaryOps.WHERE, out, d.const(-math.inf))
 
