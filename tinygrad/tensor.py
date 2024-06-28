@@ -2502,6 +2502,8 @@ class Tensor:
     ```
     """
     assert dtypes.is_unsigned(self.dtype) and dtypes.is_unsigned(self.dtype), f"not supported {self.dtype=} {x=}"
+    if self.device == "PTX":
+      x = x.cast(dtypes.int32)
     return F.LeftShift.apply(*self._broadcasted(x, False))
 
   def rshift(self, x:Union[Tensor, ConstType]):
@@ -2514,6 +2516,8 @@ class Tensor:
     ```
     """
     assert dtypes.is_unsigned(self.dtype) and dtypes.is_unsigned(self.dtype), f"not supported {self.dtype=} {x=}"
+    if self.device == "PTX":
+      x = x.cast(dtypes.int32)
     return F.RightShift.apply(*self._broadcasted(x, False))
 
   def pow(self, x:Union[Tensor, ConstType], reverse=False) -> Tensor:
