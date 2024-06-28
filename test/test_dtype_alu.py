@@ -1,5 +1,6 @@
 import unittest
 
+import math
 from tinygrad import Tensor, dtypes, Device
 import operator
 import numpy as np
@@ -171,6 +172,10 @@ class TestDTypeALU(unittest.TestCase):
   @given(strat.integers(min_value=0, max_value=2**8-1), strat.integers(min_value=0, max_value=7), strat.sampled_from(bitshift_ops))
   def test_bitshift_uint8(self, a, b, op): universal_test(a, b, dtypes.uint8, op)
 
+  def test_isinf_fp64(self): universal_test(math.inf, math.inf, dtypes.float64, operator.eq)
+  def test_isinf_fp32(self): universal_test(math.inf, math.inf, dtypes.float32, operator.eq)
+  def test_isinf_fp16(self): universal_test(math.inf, math.inf, dtypes.float16, operator.eq)
+  
   # Metal and CUDACPU and HIP behave differently than numpy in CI for overflows
   skip_overflow = CI and (Device.DEFAULT in {"AMD", "NV"} or getenv("CUDACPU"))
   @given(strat.floats(width=32, min_value=0, max_value=10.0) if skip_overflow else ht.float32,

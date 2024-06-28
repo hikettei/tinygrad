@@ -75,7 +75,7 @@ def ilogb2k(d:LazyBuffer) -> LazyBuffer:
 def ldexp3k(d:LazyBuffer, e:LazyBuffer) -> LazyBuffer:
   assert is_dtype_fastmath_supported(d.dtype) and is_dtype_fastmath_supported(e.dtype)
   dtype = d.dtype
-  d = d.cast(dtypes.float64) if d.device in ["AMD", "NV"] and d.dtype == dtypes.float32 else d
+  d = d.cast(dtypes.float64) if d.device in "NV" and d.dtype == dtypes.float32 else d
   cast_map = {dtypes.float64: dtypes.int64, dtypes.float32: dtypes.int32, dtypes.float16: dtypes.int16}
   e = e.cast(cast_map[d.dtype])
   m1 = d.cast(cast_map[d.dtype], True, True)
@@ -313,7 +313,6 @@ def xlog2(d: LazyBuffer) -> LazyBuffer:
   assert is_dtype_fastmath_supported(d.dtype)
   FLT_MIN = d.const(1e-6 if d.dtype == dtypes.float16 else 1e-4)
   out = d.e(BinaryOps.CMPLT, FLT_MIN).e(TernaryOps.WHERE, _xlog2_base(d, True), _xlog2_base(d, False))
-  out = d.e(BinaryOps.CMPLT, d.const(0.0)).e(TernaryOps.WHERE, d.const(math.nan), out)
   return d.e(BinaryOps.CMPNE, d.const(0.0)).e(TernaryOps.WHERE, out, d.const(-math.inf))
 
 def xexp2(d: LazyBuffer) -> LazyBuffer:
