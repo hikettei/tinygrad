@@ -313,6 +313,7 @@ def xlog2(d: LazyBuffer) -> LazyBuffer:
   assert is_dtype_fastmath_supported(d.dtype)
   FLT_MIN = d.const(1e-6 if d.dtype == dtypes.float16 else 1e-4)
   out = d.e(BinaryOps.CMPLT, FLT_MIN).e(TernaryOps.WHERE, _xlog2_base(d, True), _xlog2_base(d, False))
+  out = d.e(BinaryOps.CMPLT, d.const(0.0)).e(TernaryOps.WHERE, d.const(math.nan), out)
   return d.e(BinaryOps.CMPNE, d.const(0.0)).e(TernaryOps.WHERE, out, d.const(-math.inf))
 
 def xexp2(d: LazyBuffer) -> LazyBuffer:
