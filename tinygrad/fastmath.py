@@ -5,6 +5,17 @@ from tinygrad.dtype import dtypes, DType
 from tinygrad.ops import UnaryOps, BinaryOps, TernaryOps
 from tinygrad.lazy import LazyBuffer
 
+# 方針
+# 1. まずexp2をBitshift freeにする
+# 2. log2をbitshift freeにする
+# 3. sinのbitshiftをexp2で頑張る？
+
+def shr(x: LazyBuffer, y:int):
+  return x.e(BinaryOps.IDIV, x.const(2**y))
+
+def shl(x: LazyBuffer, y:int):
+  return x.e(BinaryOps.MUL, x.const(2**y))
+
 def is_dtype_fastmath_supported(d: DType):
   return d in [dtypes.float16, dtypes.float32, dtypes.float64]
 
@@ -70,7 +81,7 @@ def ilogb2k(d:LazyBuffer) -> LazyBuffer:
   assert is_dtype_fastmath_supported(d.dtype)
   dint = d.cast({dtypes.float64: dtypes.int64, dtypes.float32: dtypes.int32, dtypes.float16: dtypes.int16}[d.dtype], True, True)
   # ((float_to_bits(d) >> significand_bits(dtype)) & exponent_mask(dtype)) - exponent_bias(dtype)
-  return dint.e(BinaryOps.SHR, dint.const(significand_bits(d.dtype))).e(BinaryOps.AND, dint.const(exponent_mask(d.dtype))).e(BinaryOps.ADD, dint.const(-(exponent_bias(d.dtype)+1))) # noqa: E501
+  return shr(dint, significand_bits(d.dtype)).e(BinaryOps.AND, dint.const(exponent_mask(d.dtype))).e(BinaryOps.ADD, dint.const(-(exponent_bias(d.dtype)+1))) # noqa: E501
 
 def ldexp3k(d:LazyBuffer, e:LazyBuffer) -> LazyBuffer:
   assert is_dtype_fastmath_supported(d.dtype) and is_dtype_fastmath_supported(e.dtype)
@@ -79,22 +90,22 @@ def ldexp3k(d:LazyBuffer, e:LazyBuffer) -> LazyBuffer:
   cast_map = {dtypes.float64: dtypes.int64, dtypes.float32: dtypes.int32, dtypes.float16: dtypes.int16}
   e = e.cast(cast_map[d.dtype])
   m1 = d.cast(cast_map[d.dtype], True, True)
-  m2 = e.e(BinaryOps.SHL, e.const(significand_bits(d.dtype)))
+  m2 = shl(e, significand_bits(d.dtype))
   return m1.e(BinaryOps.ADD, m2).cast(d.dtype, True, True).cast(dtype)
 
 def pow2if(q: LazyBuffer, float_dtype: DType):
   final_dtype = {dtypes.int64: dtypes.float64, dtypes.int32: dtypes.float32, dtypes.int16: float_dtype}[q.dtype]
-  return q.e(BinaryOps.ADD, q.const(exponent_bias(final_dtype)+1)).e(BinaryOps.SHL, q.const(significand_bits(final_dtype))).cast(final_dtype, True, True) # noqa: E501
+  return shl(q.e(BinaryOps.ADD, q.const(exponent_bias(final_dtype)+1)), significand_bits(final_dtype)).cast(final_dtype, True, True) # noqa: E501
 
 def ldexp2kf(d: LazyBuffer, e: LazyBuffer) -> LazyBuffer:
   assert is_dtype_fastmath_supported(d.dtype) and e.dtype in (dtypes.int16, dtypes.int32, dtypes.int64)
-  return d.e(BinaryOps.MUL, pow2if(e.e(BinaryOps.SHR, e.const(1)), d.dtype)).e(BinaryOps.MUL, pow2if(e.e(BinaryOps.ADD, e.e(BinaryOps.SHR, e.const(1)).e(UnaryOps.NEG)), d.dtype)) # noqa: E501
+  return d.e(BinaryOps.MUL, pow2if(shr(e, 1), d.dtype)).e(BinaryOps.MUL, pow2if(e.e(BinaryOps.ADD, shr(e, 1).e(UnaryOps.NEG)), d.dtype)) # noqa: E501
 
 def frexp(v: LazyBuffer) -> Tuple[LazyBuffer, LazyBuffer]:
   m1 = {dtypes.float64: 0x800FFFFF, dtypes.float32: 0x807FFFFF, dtypes.float16: 0x83FF}[v.dtype] # noqa: E501
   m2 = {dtypes.float64: 0x3FE0000000000000, dtypes.float32: 0x3F000000, dtypes.float16: 0x3C00}[v.dtype] # noqa: E501
   bits = float_to_bits(v)
-  exponent = bits.e(BinaryOps.SHR, bits.const(significand_bits(v.dtype))).e(BinaryOps.AND, bits.const(exponent_mask(v.dtype)))
+  exponent = shr(bits, significand_bits(v.dtype)).e(BinaryOps.AND, bits.const(exponent_mask(v.dtype)))
   exponent_zero = exponent.e(BinaryOps.CMPNE, exponent.const(0.0))
   result_f = bits_to_float(bits.e(BinaryOps.AND, bits.const(m1)).e(BinaryOps.OR, bits.const(m2)), v.dtype)
   value = exponent_zero.e(TernaryOps.WHERE, result_f, v)
