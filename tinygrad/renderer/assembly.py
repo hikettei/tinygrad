@@ -41,6 +41,8 @@ class PTXRenderer(Renderer):
     BinaryOps.SHR: lambda d,a,b,dt,name: f"shr.{name} {d}, {a}, {b};", BinaryOps.SHL: lambda d,a,b,dt,name: f"shl.b{name[1:]} {d}, {a}, {b};",
     BinaryOps.ADD: lambda d,a,b,dt,name: f"{'or' if name == 'pred' else 'add'}.{name} {d}, {a}, {b};",
     BinaryOps.MUL: lambda d,a,b,dt,name: ('and' if dt == dtypes.bool else 'mul') + f"{'.lo' if dtypes.is_int(dt) else ''}.{name} {d}, {a}, {b};",
+    BinaryOps.AND: lambda d, a, b, dt, name: f"and.pred {d}, {a}, {b};" if name == "pred" else f"and.b{name[1:]} {d}, {a}, {b};",
+    BinaryOps.OR: lambda d, a, b, dt, name: f"or.pred {d}, {a}, {b};" if name == "pred" else f"or.b{name[1:]} {d}, {a}, {b};",
     BinaryOps.XOR: lambda d,a,b,dt,name: f"xor.pred {d}, {a}, {b};" if name == "pred" else f"xor.b{name[1:]} {d}, {a}, {b};",
     BinaryOps.IDIV: lambda d,a,b,dt,name: f"div.{name} {d}, {a}, {b};",
     BinaryOps.MAX: lambda d,a,b,dt,name: f"max.{name} {d}, {a}, {b};", BinaryOps.MOD: lambda d,a,b,dt,name: f"rem.{name} {d}, {a}, {b};",
@@ -159,6 +161,12 @@ class PTXRenderer(Renderer):
           if args is BinaryOps.CMPLT or args is BinaryOps.CMPNE:
             # pass in the other dtype here
             kk(self.asm_for_op[args](ssa("alu", u), *[r[x] for x in src], src[0].dtype, self.types[src[0].dtype]))
+          elif args is BinaryOps.SHL or args is BinaryOps.SHR:
+            # the right operand must be uint32 regardless of the instruction type
+            operands = [r[x] for x in src]
+            if dtype != dtypes.int64:
+              operands[1] = _cast(operands[1], dtypes.uint32, dtype, u=u)
+            kk(self.asm_for_op[args](ssa("alu", u), *operands, src[0].dtype, self.types[src[0].dtype]))
           else:
             kk(self.asm_for_op[args](ssa("alu", u), *[r[x] for x in src], dtype, self.types[dtype]))
         elif uop is UOps.DEFINE_ACC:
