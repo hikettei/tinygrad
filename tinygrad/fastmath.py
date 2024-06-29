@@ -94,7 +94,8 @@ def ldexp3k(d:LazyBuffer, e:LazyBuffer) -> LazyBuffer:
   return m1.e(BinaryOps.ADD, m2).cast(d.dtype, True, True).cast(dtype)
 
 def pow2if(q: LazyBuffer, float_dtype: DType):
-  final_dtype = {dtypes.int64: dtypes.float64, dtypes.int32: dtypes.float32, dtypes.int16: float_dtype}[q.dtype]
+  assert q.dtype in (dtypes.int64, dtypes.int32, dtypes.int16, dtypes.uint32)
+  final_dtype = {dtypes.int64: dtypes.float64, dtypes.int32: dtypes.float32, dtypes.int16: float_dtype, dtypes.uint32: dtypes.float32}[q.dtype]
   return shl(q.e(BinaryOps.ADD, q.const(exponent_bias(final_dtype)+1)), significand_bits(final_dtype)).cast(final_dtype, True, True) # noqa: E501
 
 def ldexp2kf(d: LazyBuffer, e: LazyBuffer) -> LazyBuffer:
@@ -148,9 +149,12 @@ def payne_hanek_reduction(d: LazyBuffer, d_base: LazyBuffer) -> LazyBuffer:
   e = e.cast(dtypes.uint32)
   offset = e.const(32).e(BinaryOps.ADD, e.e(UnaryOps.NEG))
 
-  hi = _eq(e, 0).e(TernaryOps.WHERE, a1.e(BinaryOps.SHL, e).e(BinaryOps.OR, a1p1.e(BinaryOps.SHR, offset)), a1)
-  mi = _eq(e, 0).e(TernaryOps.WHERE, a2.e(BinaryOps.SHL, e).e(BinaryOps.OR, a2p1.e(BinaryOps.SHR, offset)), a2)
-  lo = _eq(e, 0).e(TernaryOps.WHERE, a3.e(BinaryOps.SHL, e).e(BinaryOps.OR, a3p1.e(BinaryOps.SHR, offset)), a3)
+  def _shl(x, y): return x.e(BinaryOps.MUL, pow2if(y, dtypes.float32).cast(x.dtype))
+  def _shr(x, y): return x.e(BinaryOps.IDIV, pow2if(y, dtypes.float32).cast(x.dtype))
+
+  hi = _eq(e, 0).e(TernaryOps.WHERE, _shl(a1, e).e(BinaryOps.OR, _shr(a1p1, offset)), a1)
+  mi = _eq(e, 0).e(TernaryOps.WHERE, _shl(a2, e).e(BinaryOps.OR, _shr(a2p1, offset)), a2)
+  lo = _eq(e, 0).e(TernaryOps.WHERE, _shl(a3, e).e(BinaryOps.OR, _shr(a3p1, offset)), a3)
 
   def _hp_mul(x: LazyBuffer, y: LazyBuffer) -> LazyBuffer: return x.cast(dtypes.uint64).e(BinaryOps.MUL, y.cast(dtypes.uint64))
   p = _hp_mul(ia, lo)
