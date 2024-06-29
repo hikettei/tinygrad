@@ -149,8 +149,9 @@ def payne_hanek_reduction(d: LazyBuffer, d_base: LazyBuffer) -> LazyBuffer:
   e = e.cast(dtypes.uint32)
   offset = e.const(32).e(BinaryOps.ADD, e.e(UnaryOps.NEG))
 
-  def _shl(x, y): return x.e(BinaryOps.MUL, pow2if(y, dtypes.float32).cast(x.dtype))
-  def _shr(x, y): return x.e(BinaryOps.IDIV, pow2if(y, dtypes.float32).cast(x.dtype))
+  def _exact_pow2if(x): return xexp2(x.cast(dtypes.float32)).cast(dtypes.uint64)
+  def _shl(x, y): return x.cast(dtypes.uint64).e(BinaryOps.MUL, _exact_pow2if(y)).cast(dtypes.uint32)
+  def _shr(x, y): return x.cast(dtypes.uint64).e(BinaryOps.IDIV, _exact_pow2if(y)).cast(dtypes.uint32)
 
   hi = _eq(e, 0).e(TernaryOps.WHERE, _shl(a1, e).e(BinaryOps.OR, _shr(a1p1, offset)), a1)
   mi = _eq(e, 0).e(TernaryOps.WHERE, _shl(a2, e).e(BinaryOps.OR, _shr(a2p1, offset)), a2)
@@ -194,7 +195,7 @@ def _xsin_base(d: LazyBuffer, fast:bool=False) -> LazyBuffer:
   d = _lazy_map_numbers(d, d.const(0.0), d.const(0.0), d.const(0.0), d)
   fp64_p = d.dtype == dtypes.float64
   trig_range_lv1 = d.const(15.0 if fp64_p else 125.0)
-  trig_range_lv2 = d.const(1e+14 if fp64_p else 39000)
+  trig_range_lv2 = d.const(1e+14 if fp64_p else 38900)
   m_1_pi = 0.318309886183790671537767526745028724
 
   # di = abs(d)
@@ -213,7 +214,8 @@ def _xsin_base(d: LazyBuffer, fast:bool=False) -> LazyBuffer:
       return rintk(mla(d, d.const(m_1_pi), qdh.e(UnaryOps.NEG))).cast(d.dtype)
     return __lv1q(x)
 
-  lv3_reduced_d = payne_hanek_reduction(di, d)
+  di_no_inf = di.e(BinaryOps.CMPLT, trig_range_lv2).e(TernaryOps.WHERE, trig_range_lv2, di)
+  lv3_reduced_d = payne_hanek_reduction(di_no_inf, d)
   lv3_q = __lv2q(d) if fast else __lv2q(lv3_reduced_d) # skip the payne_hanek_reduction
   q: LazyBuffer = di.e(BinaryOps.CMPLT, trig_range_lv1).e(TernaryOps.WHERE, __lv1q(d), di.e(BinaryOps.CMPLT, trig_range_lv2).e(TernaryOps.WHERE, __lv2q(d), lv3_q)) # noqa: E501
   def __lv1(x: LazyBuffer) -> LazyBuffer:
