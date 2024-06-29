@@ -42,14 +42,11 @@ class Sin(Function):
   def forward(self, x: LazyBuffer, fast:bool=False) -> LazyBuffer:
     self.x = x
     self.fast = fast or self.device in ["PTX", "NV", "CUDA"]
-    self.fast_approx = x.dtype in [dtypes.float16, dtypes.float32, dtypes.float64]
-    if self.fast_approx:
-      return xsin(x, fast=self.fast)
-    return x.e(UnaryOps.SIN)
+    return xsin(x, fast=self.fast)
 
   def backward(self, grad_output: LazyBuffer) -> LazyBuffer:
     k = self.x.const(math.pi / 2).e(BinaryOps.ADD, self.x.e(UnaryOps.NEG))
-    k = xsin(k, fast=self.fast) if self.fast_approx else k.e(UnaryOps.SIN)
+    k = xsin(k, fast=self.fast)
     return k.e(BinaryOps.MUL, grad_output)
 
 # NOTE: maximum(x, 0) behaves differently where x=0
@@ -64,17 +61,15 @@ class Relu(Function):
 class Log(Function):
   def forward(self, x:LazyBuffer) -> LazyBuffer:
     self.x = x
-    fast_approx = x.dtype in [dtypes.float16, dtypes.float32, dtypes.float64]
-    x = xlog2(x) if fast_approx else x.e(UnaryOps.LOG2)
+    x = xlog2(x)
     return x.e(BinaryOps.MUL, x.const(math.log(2)))
 
   def backward(self, grad_output:LazyBuffer) -> LazyBuffer: return grad_output.e(BinaryOps.MUL, self.x.e(UnaryOps.RECIP))
 
 class Exp(Function):
   def forward(self, x:LazyBuffer) -> LazyBuffer:
-    fast_approx = x.dtype in [dtypes.float16, dtypes.float32, dtypes.float64]
     self.ret = x.e(BinaryOps.MUL, x.const(1/math.log(2)))
-    self.ret = xexp2(self.ret) if fast_approx else self.ret.e(UnaryOps.EXP2)
+    self.ret = xexp2(self.ret)
     return self.ret
 
   def backward(self, grad_output:LazyBuffer) -> LazyBuffer: return self.ret.e(BinaryOps.MUL, grad_output)
