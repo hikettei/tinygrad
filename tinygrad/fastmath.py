@@ -5,17 +5,6 @@ from tinygrad.dtype import dtypes, DType
 from tinygrad.ops import UnaryOps, BinaryOps, TernaryOps
 from tinygrad.lazy import LazyBuffer
 
-# 方針
-# 1. まずexp2をBitshift freeにする
-# 2. log2をbitshift freeにする
-# 3. sinのbitshiftをexp2で頑張る？
-
-def shr(x: LazyBuffer, y:int):
-  return x.e(BinaryOps.IDIV, x.const(2**y))
-
-def shl(x: LazyBuffer, y:int):
-  return x.e(BinaryOps.MUL, x.const(2**y))
-
 def is_dtype_fastmath_supported(d: DType):
   return d in [dtypes.float16, dtypes.float32, dtypes.float64]
 
@@ -64,6 +53,9 @@ def bits_to_float(d: LazyBuffer, float_dtype: DType) -> LazyBuffer:
   return d.cast(cast_to, True, True)
 
 # **** utils ****
+def shr(x: LazyBuffer, y:int) -> LazyBuffer: return x.e(BinaryOps.IDIV, x.const(2**y))
+def shl(x: LazyBuffer, y:int) -> LazyBuffer: return x.e(BinaryOps.MUL, x.const(2**y))
+
 def rintk(d: LazyBuffer) -> LazyBuffer:
   assert is_dtype_fastmath_supported(d.dtype)
   return_t = {dtypes.float64: dtypes.int64, dtypes.float32: dtypes.int32, dtypes.float16: dtypes.int16}[d.dtype]
@@ -149,7 +141,7 @@ def payne_hanek_reduction(d: LazyBuffer, d_base: LazyBuffer) -> LazyBuffer:
   e = e.cast(dtypes.uint32)
   offset = e.const(32).e(BinaryOps.ADD, e.e(UnaryOps.NEG))
 
-  def _exact_pow2if(x): return xexp2(x.cast(dtypes.float32)).cast(dtypes.uint64)
+  def _exact_pow2if(x): return _xexp2_base(x.cast(dtypes.float32)).cast(dtypes.uint64)
   def _shl(x, y): return x.cast(dtypes.uint64).e(BinaryOps.MUL, _exact_pow2if(y)).cast(dtypes.uint32)
   def _shr(x, y): return x.cast(dtypes.uint64).e(BinaryOps.IDIV, _exact_pow2if(y)).cast(dtypes.uint32)
 
@@ -320,7 +312,7 @@ def _xlog2_base(d: LazyBuffer, denormal: bool) -> LazyBuffer:
   r = zero_map.e(TernaryOps.WHERE, r, r.const(-math.inf))
   return r
 
-# ****** toplevels for fastmath *****
+# ****** toplevel functions for fastmath *****
 def xsin(x: LazyBuffer, fast: bool=False) -> LazyBuffer:
   assert is_dtype_fastmath_supported(x.dtype)
   if 0 in x.shape: return x
