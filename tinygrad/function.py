@@ -65,6 +65,8 @@ class Log(Function):
   def forward(self, x:LazyBuffer) -> LazyBuffer:
     self.x = x
     fast_approx = x.dtype in [dtypes.float16, dtypes.float32, dtypes.float64]
+    if self.device == "AMD":
+      fast_approx=False
     x = xlog2(x) if fast_approx else x.e(UnaryOps.LOG2)
     return x.e(BinaryOps.MUL, x.const(math.log(2)))
 
@@ -73,6 +75,8 @@ class Log(Function):
 class Exp(Function):
   def forward(self, x:LazyBuffer) -> LazyBuffer:
     fast_approx = x.dtype in [dtypes.float16, dtypes.float32, dtypes.float64]
+    if self.device == "AMD":
+      fast_approx=False
     self.ret = x.e(BinaryOps.MUL, x.const(1/math.log(2)))
     self.ret = xexp2(self.ret) if fast_approx else self.ret.e(UnaryOps.EXP2)
     return self.ret
