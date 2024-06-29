@@ -141,9 +141,10 @@ def payne_hanek_reduction(d: LazyBuffer, d_base: LazyBuffer) -> LazyBuffer:
   e = e.cast(dtypes.uint32)
   offset = e.const(32).e(BinaryOps.ADD, e.e(UnaryOps.NEG))
 
-  def _exact_pow2if(x): return _xexp2_base(x.cast(dtypes.float32)).cast(dtypes.uint64)
-  def _shl(x, y): return x.cast(dtypes.uint64).e(BinaryOps.MUL, _exact_pow2if(y)).cast(dtypes.uint32)
-  def _shr(x, y): return x.cast(dtypes.uint64).e(BinaryOps.IDIV, _exact_pow2if(y)).cast(dtypes.uint32)
+  acc_dtype = dtypes.uint32 if input_dtype == dtypes.float16 else dtypes.uint64
+  def _exact_pow2if(x): return _xexp2_base(x.cast(dtypes.float32)).cast(acc_dtype)
+  def _shl(x, y): return x.cast(acc_dtype).e(BinaryOps.MUL, _exact_pow2if(y)).cast(dtypes.uint32)
+  def _shr(x, y): return x.cast(acc_dtype).e(BinaryOps.IDIV, _exact_pow2if(y)).cast(dtypes.uint32)
 
   hi = _eq(e, 0).e(TernaryOps.WHERE, _shl(a1, e).e(BinaryOps.OR, _shr(a1p1, offset)), a1)
   mi = _eq(e, 0).e(TernaryOps.WHERE, _shl(a2, e).e(BinaryOps.OR, _shr(a2p1, offset)), a2)
