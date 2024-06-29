@@ -124,7 +124,7 @@ def payne_hanek_reduction(d: LazyBuffer, d_base: LazyBuffer) -> LazyBuffer:
 
   f, e = frexp(d)
   ia = (k := f.cast(dtype_via)).e(BinaryOps.MUL, k.const(4.294967296e9)).cast(dtypes.uint64)
-  i = (k := e.cast(dtypes.uint64)).e(BinaryOps.SHR, k.const(5))
+  i = shr(e.cast(dtypes.uint64), 5)
   e = (k := e.cast(dtypes.uint64)).e(BinaryOps.AND, k.const(31))
 
   def _eq(arr: LazyBuffer, eq_to: int) -> LazyBuffer: return arr.e(BinaryOps.CMPNE, arr.const(eq_to))
@@ -154,10 +154,10 @@ def payne_hanek_reduction(d: LazyBuffer, d_base: LazyBuffer) -> LazyBuffer:
 
   def _hp_mul(x: LazyBuffer, y: LazyBuffer) -> LazyBuffer: return x.cast(dtypes.uint64).e(BinaryOps.MUL, y.cast(dtypes.uint64))
   p = _hp_mul(ia, lo)
-  p = _hp_mul(ia, mi).e(BinaryOps.ADD, p.e(BinaryOps.SHR, p.const(32)))
-  p = _hp_mul(ia, hi).e(BinaryOps.SHL, p.const(32)).e(BinaryOps.ADD, p)
+  p = _hp_mul(ia, mi).e(BinaryOps.ADD, shr(p, 32))
+  p = shl(_hp_mul(ia, hi), 32).e(BinaryOps.ADD, p)
 
-  q = p.e(BinaryOps.SHR, p.const(62)).cast(dtypes.int32)
+  q = shr(p, 62).cast(dtypes.int32)
   p = p.e(BinaryOps.AND, p.const(0x3fffffffffffffff))
 
   fr_map = p.e(BinaryOps.AND, p.const(0x2000000000000000)).e(BinaryOps.CMPNE, p.const(0))
