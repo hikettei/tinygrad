@@ -311,12 +311,14 @@ def _xlog2_base(d: LazyBuffer, denormal: bool) -> LazyBuffer:
   isinf_map = d.e(BinaryOps.CMPNE, d.const(math.inf))
   nan_map1 = d.e(BinaryOps.CMPLT, d.const(0.0))
   nan_map2 = d.e(BinaryOps.CMPNE, d)
-  zero_map = d.e(BinaryOps.CMPNE, d.const(0.0))
+  zero_map1 = d.e(BinaryOps.CMPNE, d.const(0.0))
+  zero_map2 = d.e(BinaryOps.CMPNE, d.const(-0.0))
 
   r = isinf_map.e(TernaryOps.WHERE, r, r.const(math.inf))
   r = nan_map1.e(TernaryOps.WHERE, r.const(math.nan), r)
   r = nan_map2.e(TernaryOps.WHERE, r.const(math.nan), r)
-  r = zero_map.e(TernaryOps.WHERE, r, r.const(-math.inf))
+  r = zero_map1.e(TernaryOps.WHERE, r, r.const(-math.inf))
+  r = zero_map2.e(TernaryOps.WHERE, r, r.const(-math.inf))
   return r
 
 # ****** toplevel functions for fastmath *****
