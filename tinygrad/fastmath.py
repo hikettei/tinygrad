@@ -107,21 +107,20 @@ def frexp(v: LazyBuffer) -> Tuple[LazyBuffer, LazyBuffer]:
   return value, exp
 
 # *** helper algorithm for sin ***
-# d = abs(d_base)
-def payne_hanek_reduction(d: LazyBuffer, d_base: LazyBuffer) -> LazyBuffer:
+# guarantees d >= 39000.0
+def payne_hanek_reduction(d: LazyBuffer, d_base: LazyBuffer, d_sign: LazyBuffer) -> LazyBuffer:
   assert is_dtype_fastmath_supported(d.dtype)
   two_over_pi_f = [0x00000000,0x28be60db,0x9391054a,0x7f09d5f4,0x7d4d3770,0x36d8a566,0x4f10e410] # noqa: E501
-
   input_dtype: DType = d.dtype
+  acc_dtype = dtypes.uint32 if input_dtype == dtypes.float16 else dtypes.uint64
   dtype_via = dtypes.float32 if d.dtype == dtypes.float16 else d.dtype
-
+  # 
   f, e = frexp(d)
   ia = (k := f.cast(dtype_via)).e(BinaryOps.MUL, k.const(4.294967296e9)).cast(dtypes.uint64)
   i = shr(e.cast(dtypes.uint64), 5)
   e = (k := e.cast(dtypes.uint64)).e(BinaryOps.AND, k.const(31))
 
   def _eq(arr: LazyBuffer, eq_to: int) -> LazyBuffer: return arr.e(BinaryOps.CMPNE, arr.const(eq_to))
-
   # a_n = (two_over_pi_f[Int(i) + n] << e) | (two_over_pi_f[Int(i) + n+1] >> (nbits - e))
   a1 = i.const(0).cast(dtypes.uint32)
   a2 = i.const(0).cast(dtypes.uint32)
@@ -141,7 +140,6 @@ def payne_hanek_reduction(d: LazyBuffer, d_base: LazyBuffer) -> LazyBuffer:
   e = e.cast(dtypes.uint32)
   offset = e.const(32).e(BinaryOps.ADD, e.e(UnaryOps.NEG))
 
-  acc_dtype = dtypes.uint32 if input_dtype == dtypes.float16 else dtypes.uint64
   def _exact_pow2if(x): return _xexp2_base(x.cast(dtypes.float32)).cast(acc_dtype)
   def _shl(x, y): return x.cast(acc_dtype).e(BinaryOps.MUL, _exact_pow2if(y)).cast(dtypes.uint32)
   def _shr(x, y): return x.cast(acc_dtype).e(BinaryOps.IDIV, _exact_pow2if(y)).cast(dtypes.uint32)
@@ -164,66 +162,21 @@ def payne_hanek_reduction(d: LazyBuffer, d_base: LazyBuffer) -> LazyBuffer:
   q = fr_map.e(TernaryOps.WHERE, q.e(BinaryOps.ADD, q.const(1)), q)
 
   d = p.cast(dtype_via)
-  d = d.e(BinaryOps.MUL, d.const(3.4061215800865545e-19))
+  d = d.e(BinaryOps.MUL, d.const(3.4061215800865545e-19)) # reduce by 2/pi
   r = d.cast(input_dtype)
+  return r.cast(input_dtype).e(BinaryOps.MUL, d_sign), q.e(BinaryOps.MUL, d_sign.cast(q.dtype))
 
-  lt_zero_map = d_base.e(BinaryOps.CMPLT, d_base.const(0.0))
-
-  q = q.e(BinaryOps.MOD, q.const(4))
-  q_mod_2 = q.e(BinaryOps.MOD, q.const(2))
-  rotate_map = q_mod_2.e(BinaryOps.CMPNE, q_mod_2.const(1))
-  rotations = rotate_map.e(TernaryOps.WHERE, r.const(0), r.const(math.pi / 2))
-  r = r.e(BinaryOps.ADD, rotations)
-
-  add_map = q.e(BinaryOps.CMPLT, q.const(2))
-
-  r = add_map.e(TernaryOps.WHERE, r, r.e(UnaryOps.NEG))
-  r = lt_zero_map.e(TernaryOps.WHERE, r.e(UnaryOps.NEG), r)
-  return r.cast(input_dtype)
-
-# *** base implementation for xsin/xlog2/xexp2 ***
-# Set fast=True to skip Payne-Hanek reduction.
-def _xsin_base(d: LazyBuffer, fast:bool=False) -> LazyBuffer:
-  assert is_dtype_fastmath_supported(d.dtype)
-  d = _lazy_map_numbers(d, d.const(0.0), d.const(0.0), d.const(0.0), d)
-  fp64_p = d.dtype == dtypes.float64
-  trig_range_lv1 = d.const(15.0 if fp64_p else 125.0)
-  trig_range_lv2 = d.const(1e+14 if fp64_p else 38900)
-  m_1_pi = 0.318309886183790671537767526745028724
-
-  # di = abs(d)
-  di = d.e(BinaryOps.MUL, d.e(BinaryOps.CMPNE, d.const(0)).e(TernaryOps.WHERE, d.e(BinaryOps.CMPLT, d.const(0)).e(TernaryOps.WHERE, d.const(-1), d.const(1)), d.const(0))) # noqa: E501
-
-  qdh = None
-  if fp64_p:
-    qdh = d.e(BinaryOps.MUL, d.const(m_1_pi / 16777216)).cast(dtypes.int64).cast(d.dtype).e(BinaryOps.MUL, d.const(16777216.0))
-
-  def __lv1q(x: LazyBuffer) -> LazyBuffer:
-    return rintk(x.e(BinaryOps.MUL, d.const(m_1_pi))).cast(d.dtype)
-
-  def __lv2q(x: LazyBuffer) -> LazyBuffer:
-    if fp64_p:
-      assert qdh is not None
-      return rintk(mla(d, d.const(m_1_pi), qdh.e(UnaryOps.NEG))).cast(d.dtype)
-    return __lv1q(x)
-
-  di_no_inf = di.e(BinaryOps.CMPLT, trig_range_lv2).e(TernaryOps.WHERE, trig_range_lv2, di)
-  lv3_reduced_d = payne_hanek_reduction(di_no_inf, d)
-  lv3_q = __lv2q(d) if fast else __lv2q(lv3_reduced_d) # skip the payne_hanek_reduction
-  q: LazyBuffer = di.e(BinaryOps.CMPLT, trig_range_lv1).e(TernaryOps.WHERE, __lv1q(d), di.e(BinaryOps.CMPLT, trig_range_lv2).e(TernaryOps.WHERE, __lv2q(d), lv3_q)) # noqa: E501
-  def __lv1(x: LazyBuffer) -> LazyBuffer:
-    if fp64_p:
-      d = mla(q, x.const(-3.141592653589793116), x)
-      d = mla(q, x.const(1.2246467991473532072e-16), d)
+# theorical guarantee for all d <= 39000.0
+def cody_waite_reduction(d: LazyBuffer, m_1_pi: float) -> LazyBuffer:
+  qdh = d.e(BinaryOps.MUL, d.const(m_1_pi / 16777216)).cast(dtypes.int64).cast(d.dtype).e(BinaryOps.MUL, d.const(16777216.0))
+  def _quadrant(x: LazyBuffer) -> LazyBuffer:
+    if x.dtype == dtypes.float64:
+      return rintk(mla(d, d.const(m_1_pi), qdh.e(UnaryOps.NEG))).cast(dtypes.int32)
     else:
-      d = mla(q, x.const(-3.1414794921875), x)
-      d = mla(q, x.const(-0.00011315941810607910156), d)
-      d = mla(q, x.const(-1.9841872589410058936e-09), d)
-    return d
-
-  def __lv2(x: LazyBuffer) -> LazyBuffer:
-    if fp64_p:
-      assert qdh is not None
+      return rintk(x.e(BinaryOps.MUL, d.const(m_1_pi))).cast(dtypes.int32)
+  def _reduce_d(x: LazyBuffer, q: LazyBuffer):
+    q = q.cast(x.dtype)
+    if x.dtype == dtypes.float64:
       d = mla(qdh, x.const(-3.1415926218032836914), x)
       d = mla(q, x.const(-3.1415926218032836914), d)
       d = mla(qdh, x.const(-3.1786509424591713469e-08), d)
@@ -237,26 +190,53 @@ def _xsin_base(d: LazyBuffer, fast:bool=False) -> LazyBuffer:
       d = mla(q, x.const(-1.9841872589410058936e-09), d)
       d = mla(q, x.const(-1.2154201256553420762e-10), d)
     return d
+  return _reduce_d(d, (q := _quadrant(d))), q
 
-  lv3_d = __lv2(d) if fast else __lv2(lv3_reduced_d)
-  d = di.e(BinaryOps.CMPLT, trig_range_lv1).e(TernaryOps.WHERE, __lv1(d), di.e(BinaryOps.CMPLT, trig_range_lv2).e(TernaryOps.WHERE, __lv2(d), lv3_d))
-  s = d.e(BinaryOps.MUL, d)
-  a = q.cast(dtypes.int64).e(BinaryOps.MOD, d.const(2).cast(dtypes.int64)).cast(d.dtype)
-  d = d.e(BinaryOps.MUL, a.e(BinaryOps.CMPNE, d.const(0)).e(TernaryOps.WHERE, d.const(-1), d.const(1)))
-
+def trig_poly(d: LazyBuffer, q: LazyBuffer, coeff32, coeff64):
+  assert len(coeff32) == 4 and len(coeff64) == 9
   u = None
-  if fp64_p:
+  s = d.e(BinaryOps.MUL, d)
+  if d.dtype == dtypes.float64:
     s2 = s.e(BinaryOps.MUL, s)
     s4 = s2.e(BinaryOps.MUL, s2)
-    def __poly4(x: LazyBuffer, x2: LazyBuffer, c3, c2, c1, c0) -> LazyBuffer: return mla(x2, mla(x, d.const(c3), d.const(c2)), mla(x, d.const(c1), d.const(c0))) # noqa: E501
+    def __poly4(x: LazyBuffer, x2: LazyBuffer, c3, c2, c1, c0) -> LazyBuffer: return mla(x2, mla(x, x.const(c3), x.const(c2)), mla(x, x.const(c1), x.const(c0))) # noqa: E501
     def __poly8(x, x2, x4, c7, c6, c5, c4, c3, c2, c1, c0) -> LazyBuffer: return mla(x4, __poly4(x, x2, c7, c6, c5, c4), __poly4(x, x2, c3, c2, c1, c0)) # noqa: E501
-    u = __poly8(s, s2, s4, -7.97255955009037868891952e-18, 2.81009972710863200091251e-15, -7.64712219118158833288484e-13, 1.60590430605664501629054e-10, -2.50521083763502045810755e-08, 2.75573192239198747630416e-06, -0.000198412698412696162806809, 0.00833333333333332974823815) # noqa: E501
-    u = mla(u, s, d.const(-0.166666666666666657414808))
-    u = mla(s, u.e(BinaryOps.MUL, d), d)
+    u = __poly8(s, s2, s4, *coeff64[:-1])
+    u = mla(u, s, d.const(coeff64[-1]))
   else:
-    u = polyN(s.const(2.6083159809786593541503e-06), s, [-0.0001981069071916863322258, 0.00833307858556509017944336, -0.166666597127914428710938]) # noqa: E501
-    u = mla(s, u.e(BinaryOps.MUL, d), d)
-  return u
+    u = polyN(s.const(coeff32[0]), s, coeff32[1:])
+  return mla(s, u.e(BinaryOps.MUL, d), d)
+
+def sin_poly(d, q):
+  return trig_poly(d, q, [2.6083159809786593541503e-06, -0.0001981069071916863322258, 0.00833307858556509017944336, -0.166666597127914428710938], [-7.97255955009037868891952e-18, 2.81009972710863200091251e-15, -7.64712219118158833288484e-13, 1.60590430605664501629054e-10, -2.50521083763502045810755e-08, 2.75573192239198747630416e-06, -0.000198412698412696162806809, 0.00833333333333332974823815, -0.166666666666666657414808])
+
+def cos_poly(d, q):
+  return trig_poly(d, q, [2.6083159809786593541503e-06, -0.0001981069071916863322258, 0.00833307858556509017944336, -0.166666597127914428710938], [-7.97255955009037868891952e-18, 2.81009972710863200091251e-15, -7.64712219118158833288484e-13, 1.60590430605664501629054e-10, -2.50521083763502045810755e-08, 2.75573192239198747630416e-06, -0.000198412698412696162806809, 0.00833333333333332974823815, -0.166666666666666657414808])
+
+def sincos_poly(d, q):
+  def _mod_eq(n: int): return q.e(BinaryOps.AND, q.const(n)).e(BinaryOps.CMPNE, q.const(0))
+  r = _mod_eq(1).e(TernaryOps.WHERE, sin_poly(d, q), cos_poly(d, q))
+  return _mod_eq(2).e(TernaryOps.WHERE, r.e(UnaryOps.NEG), r)
+
+# *** base implementation for xsin/xlog2/xexp2 ***
+# Set fast=True to skip Payne-Hanek reduction.
+def xsin(x: LazyBuffer, fast:bool=False) -> LazyBuffer:
+  assert is_dtype_fastmath_supported(x.dtype)
+  fp64_p = x.dtype == dtypes.float64
+  trig_range = x.const(1e+14 if fp64_p else 38900)
+  m_1_pi = 0.318309886183790671537767526745028724
+  
+  d = _lazy_map_numbers(x, x.const(0.0), x.const(0.0), x.const(0.0), x)
+  d_sign = d.e(BinaryOps.CMPLT, d.const(0)).e(TernaryOps.WHERE, d.const(-1), d.const(1))
+  di = d.e(BinaryOps.MUL, d_sign)
+  # merge
+  d_1, q_1 = cody_waite_reduction(d, m_1_pi)
+  d_2, q_2 = payne_hanek_reduction(di, d, d_sign)
+
+  switch_over_map = di.e(BinaryOps.CMPLT, trig_range)
+  d = switch_over_map.e(TernaryOps.WHERE, d_1, d_2)
+  q = switch_over_map.e(TernaryOps.WHERE, q_1, q_2)
+  return sincos_poly(d, q)
 
 def _xexp2_base(d: LazyBuffer) -> LazyBuffer:
   fp64_p = d.dtype == dtypes.float64
@@ -314,11 +294,6 @@ def _xlog2_base(d: LazyBuffer, denormal: bool) -> LazyBuffer:
   return r
 
 # ****** toplevel functions for fastmath *****
-def xsin(x: LazyBuffer, fast: bool=False) -> LazyBuffer:
-  assert is_dtype_fastmath_supported(x.dtype)
-  if 0 in x.shape: return x
-  return _lazy_map_numbers(x, x.const(math.nan), x.const(math.nan), x.const(math.nan), _xsin_base(x, fast=fast))
-
 def xlog2(d: LazyBuffer) -> LazyBuffer:
   assert is_dtype_fastmath_supported(d.dtype)
   FLT_MIN = d.const(1e-6 if d.dtype == dtypes.float16 else 1e-4)
