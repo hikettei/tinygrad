@@ -340,5 +340,6 @@ def xexp2(d: LazyBuffer) -> LazyBuffer:
   if 0 in d.shape: return d
   x = _lazy_map_numbers(d, d.const(0.0), d.const(0.0), d.const(0.0), d)
   d = _lazy_map_numbers(d, d.const(math.inf), d.const(0.0), d.const(math.nan), _xexp2_base(x))
+  d = d.e(BinaryOps.MUL, d.const(0)).e(BinaryOps.ADD, d)
   return d
 
