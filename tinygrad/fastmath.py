@@ -10,6 +10,7 @@ def bitcast(x, dtype: DType):
     return create_lazybuffer(x.device, x.st, dtype, UnaryOps.BITCAST, dtype, (x,))
   if isinstance(x, MultiLazyBuffer):
     return MultiLazyBuffer([bitcast(a, dtype) for a in x.lbs], x.axis, x.real)
+  raise Exception("Excepted LazyBuffer of MultiLazyBuffer")
 
 def is_dtype_fastmath_supported(d: DType):
   return d in [dtypes.float16, dtypes.float32, dtypes.float64]
