@@ -297,7 +297,7 @@ def xlog2(d: LazyBuffer) -> LazyBuffer:
   denormal_map = d.e(BinaryOps.CMPLT, FLT_MIN)
   for _ in range(2):
     d = denormal_map.e(TernaryOps.WHERE, d.e(BinaryOps.MUL, d.const(2 ** 32)), d)
-  
+
   e = ilogb2k(d.e(BinaryOps.MUL, d.const(1.0 / 0.75))).cast(d.dtype)
   m = ldexp3k(d, e.e(UnaryOps.NEG))
   e = denormal_map.e(TernaryOps.WHERE, e.e(BinaryOps.ADD, e.const(-64)), e)
@@ -329,7 +329,8 @@ def xlog2(d: LazyBuffer) -> LazyBuffer:
   r = d_orig.e(BinaryOps.CMPLT, d_orig.const(math.inf)).e(
     TernaryOps.WHERE, r, d_orig.e(BinaryOps.CMPNE, d_orig.const(math.inf)).e(
       TernaryOps.WHERE, d.const(math.nan), d))
-  # FOR PTX??
+  # [TODO] This line should be deleted.
+  # log(-0.0) = -Inf. In PTX, x == -0.0 won't be true. so making reciprocal.
   r = d_orig.e(UnaryOps.RECIP).e(BinaryOps.CMPNE, d_orig.const(-math.inf)).e(TernaryOps.WHERE, r, r.const(-math.inf))
   return r
 
