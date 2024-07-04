@@ -329,6 +329,8 @@ def xlog2(d: LazyBuffer) -> LazyBuffer:
   r = d_orig.e(BinaryOps.CMPLT, d_orig.const(math.inf)).e(
     TernaryOps.WHERE, r, d_orig.e(BinaryOps.CMPNE, d_orig.const(math.inf)).e(
       TernaryOps.WHERE, d.const(math.nan), d))
+  # FOR PTX??
+  r = d_orig.e(BinaryOps.CMPNE, d_orig.const(-0.0)).e(TernaryOps.WHERE, r, r.const(-math.inf))
   return r
 
 # ****** toplevel functions for fastmath *****
