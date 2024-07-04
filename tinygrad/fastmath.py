@@ -14,6 +14,9 @@ def bitcast(x, dtype: DType):
 def is_dtype_fastmath_supported(d: DType):
   return d in [dtypes.float16, dtypes.float32, dtypes.float64]
 
+def is_buffer_fastmath_supported(d: LazyBuffer):
+  return isinstance(d, LazyBuffer) and is_dtype_fastmath_supported(d.dtype)
+
 def _lazy_map_numbers(x: LazyBuffer, inf: LazyBuffer, _inf: LazyBuffer, nan: LazyBuffer, ratio: LazyBuffer):
   """replace inf -> inf, -inf -> _inf, nan -> nan, otherwise -> ratio"""
   return x.e(BinaryOps.CMPNE, x.const(math.inf)).e(TernaryOps.WHERE, x.e(BinaryOps.CMPNE, x).e(TernaryOps.WHERE, nan, x.e(BinaryOps.CMPNE, x.const(-math.inf)).e(TernaryOps.WHERE, ratio, _inf)), inf) # noqa: E501
@@ -329,9 +332,9 @@ def xsin(x: LazyBuffer, fast: bool=False) -> LazyBuffer:
 def xlog2(d: LazyBuffer) -> LazyBuffer:
   assert is_dtype_fastmath_supported(d.dtype)
   FLT_MIN = d.const(1e-6 if d.dtype == dtypes.float16 else 1e-4)
-  Y_FLT_MIN = d.const(math.log2({dtypes.float64: 1e-228, dtypes.float32: 1e-38, dtypes.float16: 1e-6}[d.dtype]))
+  #Y_FLT_MIN = d.const(math.log2({dtypes.float64: 1e-228, dtypes.float32: 1e-38, dtypes.float16: 1e-6}[d.dtype]))
   out = d.e(BinaryOps.CMPLT, FLT_MIN).e(TernaryOps.WHERE, _xlog2_base(d, True), _xlog2_base(d, False))
-  out = out.e(BinaryOps.CMPLT, Y_FLT_MIN).e(TernaryOps.WHERE, out.const(math.nan), out)
+  #out = out.e(BinaryOps.CMPLT, Y_FLT_MIN).e(TernaryOps.WHERE, out.const(math.nan), out)
   return d.e(BinaryOps.CMPNE, d.const(0.0)).e(TernaryOps.WHERE, out, d.const(-math.inf))
 
 def xexp2(d: LazyBuffer) -> LazyBuffer:
