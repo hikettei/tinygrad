@@ -322,12 +322,14 @@ def xlog2(d: LazyBuffer) -> LazyBuffer:
   r = d.e(BinaryOps.CMPLT, d.const(0.0)).e(TernaryOps.WHERE, r.const(math.nan), r)
   # log2(0) = -Inf
   r = d.e(BinaryOps.CMPNE, d.const(0.0)).e(TernaryOps.WHERE, r, r.const(-math.inf))
-  # log(NaN) = NaN
-  r = d_orig.e(BinaryOps.CMPNE, d_orig).e(TernaryOps.WHERE, r.const(math.nan), r)
   # y=log2(x) must be existing in the range of [log2(FLT_MIN), log2(Inf)]. otherwise the input was poisoned.
   # one exception is that x=0.0, it becomes -inf.
   r_inf_mapped = d_orig.e(BinaryOps.CMPNE, d_orig.const(0.0)).e(TernaryOps.WHERE, r.const(math.nan), r.const(-math.inf))
   r = r.e(BinaryOps.CMPLT, Y_FLT_MIN).e(TernaryOps.WHERE, r_inf_mapped, r)
+  # log(NaN) = NaN (If x <= Inf, log(x) is a real.)
+  r = d_orig.e(BinaryOps.CMPLT, d_orig.const(math.inf)).e(
+    TernaryOps.WHERE, r, d_orig.e(BinaryOps.CMPNE, d_orig.const(math.inf)).e(
+      TernaryOps.WHERE, d.const(math.nan), d))
   return r
 
 # ****** toplevel functions for fastmath *****
