@@ -315,18 +315,17 @@ def xlog2(d: LazyBuffer) -> LazyBuffer:
     sx, sy = dfadd2_f2_f2_f2(e, e.const(0), *dfmul2_f2_f2_f2(xx, xy, xx.const(2.8853900432586669922), xy.const(3.2734474483568488616e-08)))
     sx, sy = dfadd2_f2_f2_f2(sx, sy, x2.const(0), x2.e(BinaryOps.MUL, xx).e(BinaryOps.MUL, t))
     r = sx.e(BinaryOps.ADD, sy)
-
   # log2(Inf) = Inf
-  r = d.e(BinaryOps.CMPNE, d.const(math.inf)).e(TernaryOps.WHERE, r, r.const(math.inf))
+  r = d_orig.e(BinaryOps.CMPNE, d.const(math.inf)).e(TernaryOps.WHERE, r, r.const(math.inf))
   # log2(x=-0.01) = NaN. where x < 0
-  r = d.e(BinaryOps.CMPLT, d.const(0.0)).e(TernaryOps.WHERE, r.const(math.nan), r)
+  r = d_orig.e(BinaryOps.CMPLT, d.const(-0.0)).e(TernaryOps.WHERE, r.const(math.nan), r)
   # log2(0) = -Inf
-  r = d.e(BinaryOps.CMPNE, d.const(0.0)).e(TernaryOps.WHERE, r, r.const(-math.inf))
+  r = d_orig.e(BinaryOps.CMPNE, d.const(0.0)).e(TernaryOps.WHERE, r, r.const(-math.inf))
   # y=log2(x) must be existing in the range of [log2(FLT_MIN), log2(Inf)]. otherwise the input was poisoned.
   # one exception is that x=0.0, it becomes -inf.
   r_inf_mapped = d_orig.e(BinaryOps.CMPNE, d_orig.const(0.0)).e(TernaryOps.WHERE, r.const(math.nan), r.const(-math.inf))
   r = r.e(BinaryOps.CMPLT, Y_FLT_MIN).e(TernaryOps.WHERE, r_inf_mapped, r)
-  # log(NaN) = NaN (If x <= Inf, log(x) is a real.)
+  # log(NaN) = NaN, using for all real number x, either of x < Inf, x == Inf becomes True.
   r = d_orig.e(BinaryOps.CMPLT, d_orig.const(math.inf)).e(
     TernaryOps.WHERE, r, d_orig.e(BinaryOps.CMPNE, d_orig.const(math.inf)).e(
       TernaryOps.WHERE, d.const(math.nan), d))
