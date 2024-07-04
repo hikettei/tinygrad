@@ -52,11 +52,11 @@ def exponent_mask(d: DType) -> int:
 
 def float_to_bits(d: LazyBuffer) -> LazyBuffer:
   cast_to = {dtypes.float64: dtypes.uint64, dtypes.float32: dtypes.uint32, dtypes.float16: dtypes.uint16}[d.dtype]
-  return d.cast(cast_to, True)
+  return bitcast(d, cast_to)
 
 def bits_to_float(d: LazyBuffer, float_dtype: DType) -> LazyBuffer:
   cast_to = {dtypes.uint64: dtypes.float64, dtypes.uint32: dtypes.float32, dtypes.uint16: float_dtype}[d.dtype]
-  return d.cast(cast_to, True)
+  return bitcast(d, cast_to)
 
 # **** utils ****
 def shr(x: LazyBuffer, y:int) -> LazyBuffer: return x.e(BinaryOps.IDIV, x.const(2**y))
