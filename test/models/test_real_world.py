@@ -49,7 +49,6 @@ class TestRealWorld(unittest.TestCase):
 
   @unittest.skipUnless(is_dtype_supported(dtypes.float16), "need dtypes.float16")
   def test_stable_diffusion(self):
-    return True
     params = unet_params
     if CI:
       params["model_ch"] = 16
