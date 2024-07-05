@@ -42,7 +42,7 @@ class Sin(Function):
   def forward(self, x: LazyBuffer, fast:bool=False) -> LazyBuffer:
     self.x = x
     self.fast = fast or self.device in ["PTX", "NV", "CUDA"]
-    self.fast_approx = False#is_buffer_fastmath_supported(x)
+    self.fast_approx = is_buffer_fastmath_supported(x)
     if self.fast_approx:
       return xsin(x, fast=self.fast)
     return x.e(UnaryOps.SIN)
