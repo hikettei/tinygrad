@@ -132,7 +132,6 @@ def payne_hanek_reduction(d: LazyBuffer, d_base: LazyBuffer) -> LazyBuffer:
   e = (k := e.cast(dtypes.uint64)).e(BinaryOps.AND, k.const(31))
 
   def _eq(arr: LazyBuffer, eq_to: int) -> LazyBuffer: return arr.e(BinaryOps.CMPNE, arr.const(eq_to))
-
   # a_n = (two_over_pi_f[Int(i) + n] << e) | (two_over_pi_f[Int(i) + n+1] >> (nbits - e))
   a1 = i.const(0).cast(dtypes.uint32)
   a2 = i.const(0).cast(dtypes.uint32)
@@ -201,10 +200,9 @@ def _xsin_base(d: LazyBuffer, fast:bool=False) -> LazyBuffer:
   trig_range_lv1 = d.const(15.0 if fp64_p else 125.0)
   trig_range_lv2 = d.const(1e+14 if fp64_p else 38900)
   m_1_pi = 0.318309886183790671537767526745028724
-
+  fast=True
   # di = abs(d)
   di = d.e(BinaryOps.MUL, d.e(BinaryOps.CMPNE, d.const(0)).e(TernaryOps.WHERE, d.e(BinaryOps.CMPLT, d.const(0)).e(TernaryOps.WHERE, d.const(-1), d.const(1)), d.const(0))) # noqa: E501
-
   qdh = None
   if fp64_p:
     qdh = d.e(BinaryOps.MUL, d.const(m_1_pi / 16777216)).cast(dtypes.int64).cast(d.dtype).e(BinaryOps.MUL, d.const(16777216.0))
