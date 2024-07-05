@@ -1,5 +1,6 @@
 from __future__ import annotations
-from typing import Union, Tuple, Any, List, Dict, Callable
+from collections import defaultdict, deque
+from typing import DefaultDict, Union, Tuple, Any, List, Dict, Callable
 import functools, hashlib, math, operator, ctypes, struct
 from enum import Enum, auto
 from dataclasses import dataclass
@@ -148,22 +149,28 @@ def exec_alu(op:Op, dtype:DType, operands): return truncate.get(dtype, lambda x:
 
 # the living definition of LazyOps
 def verify_lazyop(*ast:LazyOp):
-  sts: Dict[LazyOp, ShapeTracker] = {}
-  def dfs(op:LazyOp, st:ShapeTracker):
-    if op in sts: return
-    for x in op.src: dfs(x, st)
-    # only reduceop is allowed to change shape, limited to turning n to 1
-    if op.op in ReduceOps:
-      assert isinstance(op.arg, tuple)
-      st = ShapeTracker.from_shape(tuple(1 if i in op.arg else s for i,s in enumerate(sts[op.src[0]].shape)))
-    else:
-      # movementops are pushed to the edges with LOAD
-      if op.op in BufferOps: st = op.arg.st
-      else: st = sts[op.src[0]]
-      for x in op.src: assert sts[x].shape == st.shape, f"found implicit movement op {x.op} {sts[x].shape} != {op.op} {st.shape}"
-    sts[op] = st
+  children: DefaultDict[LazyOp, Dict[LazyOp, None]] = defaultdict(dict)
+  in_degree: DefaultDict[LazyOp, int] = defaultdict(int)
   for i, out in enumerate(ast):
     assert out.arg.idx == i, f"unexpected output buffer idx {out.arg.idx} != {i}"
     assert out.op is BufferOps.STORE, f"kernels must have stores as the output, got {out.op}"
     assert out.arg.st.size == ast[-1].arg.st.size, f"outputs must have the same size, got {out.arg.st.size}"
-    dfs(out, out.arg.st)
+    for op in out.lazyops:
+      for s in op.src:
+        children[s][op] = None
+        in_degree[op] += 1
+  q = deque((op, op.arg.st) for out in ast for op in out.lazyops if in_degree[op] == 0)
+  sts: Dict[LazyOp, ShapeTracker] = {}
+  while q:
+    op, st = q.popleft()
+    if op.op not in ReduceOps:
+      for x in op.src: assert sts[x].shape == st.shape, f"found implicit movement op {sts[x].shape} != {st.shape}"
+    sts[op] = st
+    for x in children[op]:
+      in_degree[x] -= 1
+      if in_degree[x] == 0:
+        if x.op in ReduceOps:
+          new_shape = tuple(1 if i in x.arg else s for i,s in enumerate(st.shape))
+          st = ShapeTracker.from_shape(new_shape)
+        elif x.op in BufferOps: st = x.arg.st
+        q.append((x, st))
