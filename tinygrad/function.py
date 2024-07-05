@@ -72,7 +72,7 @@ class Log(Function):
 
 class Exp(Function):
   def forward(self, x:LazyBuffer) -> LazyBuffer:
-    fast_approx = is_buffer_fastmath_supported(x)
+    fast_approx = False#is_buffer_fastmath_supported(x)
     self.ret = x.e(BinaryOps.MUL, x.const(1/math.log(2)))
     self.ret = xexp2(self.ret) if fast_approx else self.ret.e(UnaryOps.EXP2)
     return self.ret
