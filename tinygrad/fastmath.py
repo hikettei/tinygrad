@@ -304,5 +304,6 @@ def xlog2(d: LazyBuffer) -> LazyBuffer:
   # [TODO] This line should be deleted.
   # log(-0.0) = -Inf. In PTX, x == -0.0 won't be true. so making reciprocal.
   r = d_orig.e(UnaryOps.RECIP).e(BinaryOps.CMPNE, d_orig.const(-math.inf)).e(TernaryOps.WHERE, r, r.const(-math.inf))
+  r = d_orig.e(BinaryOps.CMPNE, d_orig.const(1.0)).e(TernaryOps.WHERE, r, d_orig.const(0.0))
   return r
 
