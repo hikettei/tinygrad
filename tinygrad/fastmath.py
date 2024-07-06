@@ -222,18 +222,12 @@ def xsin(d: LazyBuffer, fast:bool=False, switch_over:float=39800.0) -> LazyBuffe
   # x_sign = sign(x)
   x_sign = x.e(BinaryOps.CMPNE, d.const(0)).e(TernaryOps.WHERE, x.e(BinaryOps.CMPLT, x.const(0)).e(TernaryOps.WHERE, x.const(-1), x.const(1)), x.const(0)) # noqa: E501
   x_abs = x.e(BinaryOps.MUL, x_sign)
-  # r, q = reduce(abs(x))
-  r, q = reduction_algo(x_abs)
+  # r, q = reduce(abs(x)+2pi)
   if not fast:
-    # Payne Hanek Reduction assumes abs(x) >= pi/4, for smaller values, use cody_waite_reduction.
-    # TODO: Eliminate switch_over
-    switch_over_map = x_abs.e(BinaryOps.CMPLT, x.const(switch_over))
-    r_fast, q_fast = cody_waite_reduction(x_abs)
-    r = switch_over_map.e(TernaryOps.WHERE, r_fast, r)
-    q = switch_over_map.e(TernaryOps.WHERE, q_fast, q)
-    result = switch_over_map.e(TernaryOps.WHERE, sin_poly_small(r, q), sin_poly_large(r, q))
-  else:
-    result = use_sin_poly(r, q)
+    small_map = x_abs.e(BinaryOps.CMPLT, x.const(switch_over))
+    x_abs = x_abs.e(BinaryOps.ADD, small_map.e(TernaryOps.WHERE, x.const(2 * math.pi), x.const(0)))
+  r, q = reduction_algo(x_abs)
+  result = use_sin_poly(r, q)
   result = result.e(BinaryOps.MUL, x_sign)
   return _lazy_map_numbers(d, d.const(math.nan), d.const(math.nan), d.const(math.nan), result)
 
