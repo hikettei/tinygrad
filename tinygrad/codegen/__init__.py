@@ -20,6 +20,7 @@ from tinygrad.codegen.opt.swizzler import view_left, view_right, fix_kernel_ops
 from tinygrad.codegen.opt.postrange import pm_postrange_opt
 from tinygrad.codegen.simplify import pm_simplify_ranges, pm_reduce_simplify, pm_flatten_range
 from tinygrad.schedule.rangeify import pm_add_buffers, rangeify_codegen
+from tinygrad.codegen.winograd import winograd_pm
 
 @dataclass
 class RewriteStep:
@@ -35,6 +36,7 @@ def apply_rewrites(sink:UOp, rewrites:list[RewriteStep]): return functools.reduc
 rewrites_for_views = [
   RewriteStep(view_left, name="Main View Left"),
   RewriteStep(view_right, name="Main View Right"),
+  RewriteStep(winograd_pm, name="Winograd Rewrite"),
   RewriteStep(view_left+fix_kernel_ops, bottom_up=True, name="Finalize Kernel"),
 ]
 
